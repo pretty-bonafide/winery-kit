@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { track } from '../analytics/tracker.js';
 import { cartStore } from '../cart/cart-store.js';
 import type { AddToCartInput, CartErrorPayload } from '../cart/cart-types.js';
 import { toCartErrorPayload } from '../cart/cart-types.js';
@@ -29,12 +30,18 @@ export function useAddToCart(defaultInput?: AddToCartInput, options: UseAddToCar
     setError(null);
     setStatus('adding');
 
+    const quantity = input.quantity ?? 1;
     try {
-      const cart = await cartStore.addItem({
-        ...input,
-        quantity: input.quantity ?? 1,
-      });
+      const cart = await cartStore.addItem({ ...input, quantity });
       setStatus('added');
+      // The cart input's productId is the storefront product slug.
+      track({
+        type: 'product_added_to_cart',
+        productSlug: input.productId,
+        productName: input.display?.title,
+        priceCents: input.display?.unitPrice,
+        quantity,
+      });
       return cart;
     } catch (requestError) {
       setError(toCartErrorPayload(requestError));

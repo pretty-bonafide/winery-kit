@@ -8,7 +8,7 @@ per-winery site repos.
 
 | Path | Purpose |
 |------|---------|
-| `packages/storefront-kit` | `@pretty-good/storefront-kit` — Storefront API clients (products, auth, customer context), cart store + adapters, the unified PDP purchase-panel state machine (retail + allocation lenses), UTM attribution, and headless React components/hooks |
+| `packages/storefront-kit` | `@pretty-good/storefront-kit` — Storefront API clients (products, auth, customer context), cart store + adapters, the unified PDP purchase-panel state machine (retail + allocation lenses), UTM attribution, top-of-funnel analytics (Amplitude), and headless React components/hooks |
 | `packages/winery-ui` | `@pretty-good/winery-ui` — presentational components over the headless hooks (PurchasePanel). Structure + behavior shared; ALL visual styling injected per-brand via `classes` slot maps. `react` and `@pretty-good/storefront-kit` are PEERS so the site's cart-store singleton is shared — never list them as deps |
 | `docs/` | Canonical cross-site docs: `winery-store-requirements.md`, `storefront-api-pdp-modifications.md` (the Storefront API wire contract), product page architecture, themeable component conventions |
 | `PLAYBOOK.md` | The end-to-end playbook for onboarding a new winery website |
@@ -113,6 +113,50 @@ copy one into a new site's `CartSidebarTheme` and retune.
 **Building the next themeable component?** Follow
 [`docs/themeable-component-template.md`](docs/themeable-component-template.md) — the
 reusable View/Theme/Storybook conventions, with `CartSidebar` as the worked example.
+
+## Analytics (Amplitude)
+
+`@pretty-good/storefront-kit/analytics` sends a fixed top-of-funnel schema to
+the winery's own Amplitude project (one project, one browser API key, per
+winery). Purchases and orders are out of scope.
+
+| Event | Fired by | Properties (besides `site` + stored `utm_*`) |
+|-------|----------|-----------------------------------------------|
+| `page_viewed` | the site, via `trackPageView()` | `path` (no query string) |
+| `product_viewed` | `usePurchasePanel`, once per mount, when its product has resolved and half of the `viewRef` element has been on screen | `product_slug`, `product_name`, `price_cents` |
+| `product_added_to_cart` | `useAddToCart`, after a successful add | `product_slug`, `product_name`, `price_cents`, `quantity` |
+| `checkout_started` | `useCartSidebar().checkout` (the `CartSidebar` button) | `cart_item_count`, `cart_subtotal_cents` |
+
+`utm_*` are the visitor's stored acquisition from `captureUtmFromLocation`,
+reported unchanged (RULES.md §3). Money is always integer cents.
+
+`product_viewed` counts wines the visitor saw, not panels that mounted: a
+one-page site mounts every wine's panel on load. Attach the hook's `viewRef` to
+the element that shows the wine (winery-ui's `PurchasePanelRoot` does this for
+you). A panel with nothing attached reports no views.
+
+1. Install the optional peer in the site: `pnpm add @amplitude/analytics-browser`.
+   Sites that never import `/analytics` don't need it and ship none of it.
+2. Initialize in the site layout's `<head>`, so it runs before islands emit
+   (events tracked before `initAnalytics` is called are dropped; events tracked
+   while the SDK loads are queued):
+
+   ```astro
+   <script>
+     import { initAnalytics, trackPageView } from '@pretty-good/storefront-kit/analytics';
+
+     void initAnalytics({ apiKey: import.meta.env.PUBLIC_AMPLITUDE_API_KEY, site: 'paco' });
+     // Client Router sites: astro:page-load fires on the first load and every
+     // navigation. Without the Client Router, call trackPageView() once instead.
+     document.addEventListener('astro:page-load', trackPageView);
+   </script>
+   ```
+
+An unset `PUBLIC_AMPLITUDE_API_KEY` turns analytics off (every `track` is a
+no-op); a key set to an empty string throws, because that is a provisioning
+mistake. The SDK starts cookie-light: autocapture and remote config off,
+identity in localStorage, no IP address on events. A failed SDK load warns once
+and drops events; analytics never breaks commerce.
 
 ## Standard cross-site conventions
 

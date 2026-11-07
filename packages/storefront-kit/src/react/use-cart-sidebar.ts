@@ -1,3 +1,4 @@
+import { track } from '../analytics/tracker.js';
 import { cartStore } from '../cart/cart-store.js';
 import { useCartStore } from './use-cart-store.js';
 
@@ -10,7 +11,10 @@ export function useCartSidebar() {
   return {
     ...state,
     closeCart: () => cartStore.closeSidebar(),
-    checkout: () => cartStore.checkout(),
+    checkout: () => {
+      track({ type: 'checkout_started', cartItemCount: itemCount, cartSubtotalCents: subtotal });
+      return cartStore.checkout();
+    },
     itemCount,
     lines,
     openCart: () => cartStore.openSidebar(),

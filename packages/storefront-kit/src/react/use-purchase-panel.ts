@@ -17,7 +17,8 @@
 //   fetched for authenticated visitors, and every failure fails closed into
 //   the members-only state (logged — a member seeing JOIN THE WAITING LIST
 //   reads as a lapsed membership, support needs the breadcrumb).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { track } from '../analytics/tracker.js';
 import { cartStore } from '../cart/cart-store.js';
 import type { AddToCartInput } from '../cart/cart-types.js';
 import { toCartErrorPayload } from '../cart/cart-types.js';
@@ -128,7 +129,14 @@ export interface UsePurchasePanelResult {
   setCartQuantity: (quantity: number) => Promise<void>;
   submitAddToCart: () => void;
   openSidebar: () => void;
+  /** Attach to the element that shows this wine (the panel or its card).
+   * `product_viewed` fires once half of it has been on screen; a panel with no
+   * attached element never reports a view. */
+  viewRef: (node: Element | null) => void;
 }
+
+/** Share of the panel that must be on screen to count as a view. */
+const PRODUCT_VIEW_THRESHOLD = 0.5;
 
 // Stable identity for the pending/empty case so the view useMemo doesn't churn
 // on every render before the product resolves.
@@ -241,6 +249,45 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       cancelled = true;
     };
   }, []);
+
+  // product_viewed means the visitor saw the wine, not that the panel mounted:
+  // a one-page site mounts every wine's panel on load. The site attaches
+  // `viewRef` to the panel; once half of it is on screen, it counts as seen.
+  const [viewNode, setViewNode] = useState<Element | null>(null);
+  const [hasBeenSeen, setHasBeenSeen] = useState(false);
+  const hasEmittedView = useRef(false);
+
+  useEffect(() => {
+    if (!viewNode || hasBeenSeen) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setHasBeenSeen(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: PRODUCT_VIEW_THRESHOLD },
+    );
+    observer.observe(viewNode);
+    return () => observer.disconnect();
+  }, [viewNode, hasBeenSeen]);
+
+  // One product_viewed per mount, once the wine is both seen and resolved (live
+  // or mock). The resolved cart input's productId is the storefront slug; an
+  // unsellable product has none, so fall back to the CMS join key.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: slug/cartSeed are page-render constants; the gates are `resolution` and `hasBeenSeen`.
+  useEffect(() => {
+    if (resolution === null || !hasBeenSeen || hasEmittedView.current) return;
+    const productSlug = resolution.cartProduct?.productId ?? slug ?? cartSeed.slug;
+    if (!productSlug) return;
+    hasEmittedView.current = true;
+    track({
+      type: 'product_viewed',
+      productSlug,
+      productName: cartSeed.title,
+      priceCents: resolution.cartProduct?.display?.unitPrice,
+    });
+  }, [resolution, hasBeenSeen]);
 
   // Recovery suggestion. The server can't verify candidates (RULES.md Rule 1:
   // no storefront reads at SSR), so the island does it: when commerce is
@@ -407,5 +454,6 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     setCartQuantity,
     submitAddToCart: addAction.submit,
     openSidebar: () => cartStore.openSidebar(),
+    viewRef: setViewNode,
   };
 }
