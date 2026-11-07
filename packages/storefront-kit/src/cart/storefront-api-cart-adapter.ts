@@ -5,15 +5,15 @@ import type {
   CartErrorCode,
   CartSnapshot,
   CreateCheckoutInput,
-} from './cart-types';
-import { CartRequestError } from './cart-types';
+} from './cart-types.js';
+import { CartRequestError } from './cart-types.js';
 import {
   normalizeStorefrontCartResponse,
   normalizeStorefrontQuotePromotions,
   storefrontCartCreateResponseSchema,
   storefrontCartResponseSchema,
   storefrontCheckoutSessionResponseSchema,
-} from './storefront-api-schemas';
+} from './storefront-api-schemas.js';
 
 const DEFAULT_TOKEN_STORAGE_KEY = 'wine_turbo_public_cart_token';
 

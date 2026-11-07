@@ -1,5 +1,5 @@
-import { cartStore } from '../cart/cart-store';
-import { useCartStore } from './use-cart-store';
+import { cartStore } from '../cart/cart-store.js';
+import { useCartStore } from './use-cart-store.js';
 
 export function useCartSidebar() {
   const state = useCartStore();

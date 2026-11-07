@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from 'react';
-import { customerCommerceStore } from '../storefront-api/customer-commerce-store';
+import { customerCommerceStore } from '../storefront-api/customer-commerce-store.js';
 
 const getServerSnapshot = customerCommerceStore.getSnapshot;
 

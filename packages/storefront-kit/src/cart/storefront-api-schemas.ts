@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CartPromotionView, CartSnapshot } from './cart-types';
+import type { CartPromotionView, CartSnapshot } from './cart-types.js';
 
 export const storefrontCartCreateResponseSchema = z.object({
   cartToken: z.string().min(1),

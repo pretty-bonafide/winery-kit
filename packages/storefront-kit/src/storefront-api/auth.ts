@@ -1,4 +1,4 @@
-import type { StorefrontApiConfig } from './config';
+import type { StorefrontApiConfig } from './config.js';
 
 export interface AnonymousCustomerSession {
   status: 'anonymous';

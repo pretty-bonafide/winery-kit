@@ -5,18 +5,18 @@
 // same-origin proxy must attach when forwarding credentialed customer-context
 // reads (so the header contract has one owner). Pure protocol shaping lives in
 // authorization.ts / token-bundle.ts; this file only does fetch.
-import { StorefrontAuthError } from '../storefront-api/auth';
+import { StorefrontAuthError } from '../storefront-api/auth.js';
 import {
   type CustomerPurchaseContext,
   parsePurchaseContextResponse,
-} from '../storefront-api/customer-context';
+} from '../storefront-api/customer-context.js';
 import {
   buildAuthorizationCodeBody,
   buildAuthorizationUrl,
   buildRefreshTokenBody,
   parseTokenResponse,
-} from './authorization';
-import type { TokenBundle } from './token-bundle';
+} from './authorization.js';
+import type { TokenBundle } from './token-bundle.js';
 
 export interface CustomerClientConfig {
   /** Public storefront API base, e.g. https://host/api/public/v1 */

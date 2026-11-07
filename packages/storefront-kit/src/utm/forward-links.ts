@@ -1,5 +1,5 @@
-import { appendUtmToUrl, UTM_KEYS, type UtmParams } from './core';
-import { readStoredUtm } from './storage';
+import { appendUtmToUrl, UTM_KEYS, type UtmParams } from './core.js';
+import { readStoredUtm } from './storage.js';
 
 export interface ForwardUtmToLinksOptions {
   /** Store origin(s) whose links should carry attribution, e.g. `https://store.example.com`. */

@@ -4,7 +4,7 @@
 // derived from a site secret so the browser can never read or forge the bundle.
 // The base64url framing is pure; the encrypt/decrypt are the only side effects.
 import { z } from 'zod';
-import type { TokenBundle } from './token-bundle';
+import type { TokenBundle } from './token-bundle.js';
 
 const bundleSchema = z.object({
   accessToken: z.string().min(1),

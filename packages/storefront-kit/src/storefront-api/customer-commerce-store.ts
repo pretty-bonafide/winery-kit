@@ -1,10 +1,10 @@
-import type { StorefrontApiConfig } from './config';
+import type { StorefrontApiConfig } from './config.js';
 import {
   type CustomerMembership,
   createCustomerContextClient,
   type VariationAvailability,
   type VariationPricing,
-} from './customer-context';
+} from './customer-context.js';
 
 export interface CustomerCommerceState {
   availability: VariationAvailability[] | null;

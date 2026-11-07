@@ -15,7 +15,7 @@
 // │ Data routes: present the access JWT via the `x-customer-token` header.     │
 // └───────────────────────────────────────────────────────────────────────────┘
 import { z } from 'zod';
-import { decodeCustomerFromJwt, type TokenBundle } from './token-bundle';
+import { decodeCustomerFromJwt, type TokenBundle } from './token-bundle.js';
 
 export interface AuthorizationUrlInput {
   baseUrl: string;

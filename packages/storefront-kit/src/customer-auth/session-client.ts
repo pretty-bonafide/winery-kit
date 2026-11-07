@@ -5,7 +5,7 @@
 // only to the site's own /api/auth/* endpoints, which hold the site-domain
 // session cookie and reach the platform server-side. No publishable key, no
 // cross-site cookie, no CORS.
-import type { CustomerSessionView, StorefrontAuthClient } from '../storefront-api/auth';
+import type { CustomerSessionView, StorefrontAuthClient } from '../storefront-api/auth.js';
 
 export interface SessionAuthClientOptions {
   /** Same-origin base for the session endpoints, e.g. '/api/auth'. */

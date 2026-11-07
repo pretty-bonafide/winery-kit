@@ -9,7 +9,7 @@
 // the live platform backend. All I/O (crypto, fetch, cookies) lives in the
 // imperative shell (session-seal.ts, customer-client.ts, and the site's Astro
 // endpoints).
-import type { CustomerSessionView } from '../storefront-api/auth';
+import type { CustomerSessionView } from '../storefront-api/auth.js';
 
 export interface CustomerIdentity {
   id: string;

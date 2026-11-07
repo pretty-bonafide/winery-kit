@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useCartStore } from './use-cart-store';
+import { useCartStore } from './use-cart-store.js';
 
 export function useCartLineQuantity(identity: {
   productId?: string;

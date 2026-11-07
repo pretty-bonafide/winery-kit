@@ -1,4 +1,4 @@
-import type { CartSidebarTheme } from './CartSidebar';
+import type { CartSidebarTheme } from './CartSidebar.js';
 
 /**
  * Reference `CartSidebarTheme` presets for prototyping and Storybook. These are

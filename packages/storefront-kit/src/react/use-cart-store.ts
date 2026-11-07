@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { cartStore } from '../cart/cart-store';
+import { cartStore } from '../cart/cart-store.js';
 
 export function useCartStore() {
   const cartState = useSyncExternalStore(

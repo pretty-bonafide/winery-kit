@@ -3,7 +3,7 @@
 // update immediately and reconcile with the authoritative server snapshot when
 // it arrives. The imperative shell (`cart-store`) owns the side effects; this
 // module owns the math and is exhaustively unit-tested.
-import type { AddToCartInput, CartLine, CartSnapshot } from './cart-types';
+import type { AddToCartInput, CartLine, CartSnapshot } from './cart-types.js';
 
 /** Identity used to merge a re-add into an existing line. Mirrors the mock
  * cart store's keying so optimistic merges match what the server would do. */

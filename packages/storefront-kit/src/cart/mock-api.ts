@@ -1,4 +1,4 @@
-import { createMockCartId, getMockCart, MOCK_CART_COOKIE } from './mock-cart-store';
+import { createMockCartId, getMockCart, MOCK_CART_COOKIE } from './mock-cart-store.js';
 
 // Structural subset of Astro's APIContext — the kit works with any framework
 // that exposes cookie get/set, without depending on Astro itself.

@@ -1,4 +1,4 @@
-import type { UtmParams } from '../utm/core';
+import type { UtmParams } from '../utm/core.js';
 
 export type CartCurrency = 'USD';
 

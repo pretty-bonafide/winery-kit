@@ -1,1 +1,1 @@
-export * from './purchase-panel-state';
+export * from './purchase-panel-state.js';
