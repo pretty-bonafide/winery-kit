@@ -67,6 +67,24 @@ extensionless ones under `moduleResolution: bundler`, but a package installed in
 `node_modules` can be loaded by Node directly, for example when Vite externalizes
 it for SSR.
 
+## Test a pull request build
+
+CI uploads every run's tarballs and `SHA256SUMS` as the `release-tarballs` artifact and
+keeps them for 14 days. Actions artifacts need a GitHub login, so a site can't install
+one by URL or use it in production. Download it and point the site at the file:
+
+```bash
+gh run download <run-id> --repo pretty-bonafide/winery-kit --name release-tarballs --dir /tmp/winery-kit-pr
+```
+
+```json
+"@pretty-good/storefront-kit": "file:/tmp/winery-kit-pr/pretty-good-storefront-kit-0.2.0.tgz"
+```
+
+The run ID is in the pull request's CI link. The tarball carries the version on that
+branch, so the filename alone doesn't identify the pull request. Don't commit this
+dependency: a site's lockfile should only reference published releases.
+
 ## Install in a site
 
 Add both packages by exact release URL, with the same version:

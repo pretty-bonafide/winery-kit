@@ -56,3 +56,11 @@ jobs:
 
       - name: Pack release tarballs
         run: pnpm release:pack
+
+      - name: Upload tarballs
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-tarballs
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
