@@ -18,9 +18,9 @@
 //   the members-only state (logged — a member seeing JOIN THE WAITING LIST
 //   reads as a lapsed membership, support needs the breadcrumb).
 import { useEffect, useMemo, useState } from 'react';
-import { cartStore } from '../cart/cart-store';
-import type { AddToCartInput } from '../cart/cart-types';
-import { toCartErrorPayload } from '../cart/cart-types';
+import { cartStore } from '../cart/cart-store.js';
+import type { AddToCartInput } from '../cart/cart-types.js';
+import { toCartErrorPayload } from '../cart/cart-types.js';
 import type {
   AlternativeCandidate,
   AlternativeSuggestion,
@@ -29,26 +29,26 @@ import type {
   PurchaseLens,
   PurchasePanelView,
   ResolvedCartProduct,
-} from '../pdp/purchase-panel-state';
+} from '../pdp/purchase-panel-state.js';
 import {
   buildPurchasePanelView,
   buildSelectedCartInput,
   resolveCartProduct,
   resolveVariationForOptionValue,
-} from '../pdp/purchase-panel-state';
-import { createStorefrontAuthClient } from '../storefront-api/auth';
-import type { StorefrontApiConfig } from '../storefront-api/config';
+} from '../pdp/purchase-panel-state.js';
+import { createStorefrontAuthClient } from '../storefront-api/auth.js';
+import type { StorefrontApiConfig } from '../storefront-api/config.js';
 import type {
   CustomerMembership,
   QuantityLimit,
   VariationAvailability,
   VariationPricing,
-} from '../storefront-api/customer-context';
-import { createCustomerContextClient } from '../storefront-api/customer-context';
-import type { StorefrontProductVariation } from '../storefront-api/products';
-import { fetchStorefrontProductBySlug } from '../storefront-api/products';
-import { useCartStore } from './use-cart-store';
-import { usePurchaseAction } from './use-purchase-action';
+} from '../storefront-api/customer-context.js';
+import { createCustomerContextClient } from '../storefront-api/customer-context.js';
+import type { StorefrontProductVariation } from '../storefront-api/products.js';
+import { fetchStorefrontProductBySlug } from '../storefront-api/products.js';
+import { useCartStore } from './use-cart-store.js';
+import { usePurchaseAction } from './use-purchase-action.js';
 
 const DEFAULT_ADD_LABELS = {
   add: 'ADD TO CART',

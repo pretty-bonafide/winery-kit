@@ -9,7 +9,7 @@
 // Every fetcher degrades to `null` on failure — callers degrade to their
 // lens's designed anonymous state and never block on these.
 import { z } from 'zod';
-import type { StorefrontApiConfig } from './config';
+import type { StorefrontApiConfig } from './config.js';
 
 const savingsSchema = z.object({
   amount: z.number(),

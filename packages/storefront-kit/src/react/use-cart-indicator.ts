@@ -1,6 +1,6 @@
-import { getCartItemsIndicatorState } from '../cart/cart-indicator-state';
-import { cartStore } from '../cart/cart-store';
-import { useCartStore } from './use-cart-store';
+import { getCartItemsIndicatorState } from '../cart/cart-indicator-state.js';
+import { cartStore } from '../cart/cart-store.js';
+import { useCartStore } from './use-cart-store.js';
 
 interface UseCartIndicatorOptions {
   initialCount?: number;

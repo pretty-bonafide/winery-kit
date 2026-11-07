@@ -1,9 +1,9 @@
 import type { ButtonHTMLAttributes, MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
-import type { AddToCartInput, CartErrorPayload } from '../cart/cart-types';
-import { useAddToCart } from './use-add-to-cart';
-import { useCartLineQuantity } from './use-cart-line-quantity';
-import { useVariationCommerce } from './use-customer-commerce';
+import type { AddToCartInput, CartErrorPayload } from '../cart/cart-types.js';
+import { useAddToCart } from './use-add-to-cart.js';
+import { useCartLineQuantity } from './use-cart-line-quantity.js';
+import { useVariationCommerce } from './use-customer-commerce.js';
 
 export interface PurchaseActionLabels {
   add: string;

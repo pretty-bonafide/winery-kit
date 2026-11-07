@@ -5,8 +5,8 @@
 // attaches; sealSession/unsealSession persist the TokenBundle in the site's own
 // HttpOnly cookie. Browser: createSessionAuthClient talks only to same-origin
 // /api/auth/*. See docs/winery-store-requirements.md §7 for the flow.
-export * from './authorization';
-export * from './customer-client';
-export * from './session-client';
-export * from './session-seal';
-export * from './token-bundle';
+export * from './authorization.js';
+export * from './customer-client.js';
+export * from './session-client.js';
+export * from './session-seal.js';
+export * from './token-bundle.js';

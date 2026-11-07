@@ -1,13 +1,10 @@
 {
   "name": "@pretty-good/storefront-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "UNLICENSED",
   "description": "Pretty Good storefront integration kit for winery websites: Storefront API clients, cart store, purchase-panel state machine, UTM attribution, and headless React components.",
   "files": ["dist"],
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "exports": {
     "./storefront-api": {
       "types": "./dist/storefront-api/index.d.ts",

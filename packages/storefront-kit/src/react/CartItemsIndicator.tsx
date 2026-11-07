@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import {
   getCartItemsIndicatorState,
   type CartItemsIndicatorState,
-} from '../cart/cart-indicator-state';
+} from '../cart/cart-indicator-state.js';
 
 export type { CartItemsIndicatorState };
 

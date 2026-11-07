@@ -1,4 +1,4 @@
-import { extractUtmParams, isExpired, mergeUtm, parseStoredUtm, type UtmParams } from './core';
+import { extractUtmParams, isExpired, mergeUtm, parseStoredUtm, type UtmParams } from './core.js';
 
 // Sites that predate the kit keep their original key (e.g. `acme_utm_v1`) via
 // configureUtmStorage so returning visitors' attribution survives the

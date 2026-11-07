@@ -5,9 +5,9 @@ import type {
   CartLine,
   CartLineView,
   CartPromotionView,
-} from '../cart/cart-types';
-import { formatUsdCents } from '../money';
-import { useCartSidebar } from './use-cart-sidebar';
+} from '../cart/cart-types.js';
+import { formatUsdCents } from '../money.js';
+import { useCartSidebar } from './use-cart-sidebar.js';
 
 /**
  * Visual treatment for the cart sidebar, supplied by the host site. The

@@ -1,5 +1,10 @@
-import type { AddToCartInput, CartAdapter, CartSnapshot, CreateCheckoutInput } from './cart-types';
-import { CartRequestError } from './cart-types';
+import type {
+  AddToCartInput,
+  CartAdapter,
+  CartSnapshot,
+  CreateCheckoutInput,
+} from './cart-types.js';
+import { CartRequestError } from './cart-types.js';
 
 async function parseCartResponse(response: Response): Promise<CartSnapshot> {
   if (!response.ok) {

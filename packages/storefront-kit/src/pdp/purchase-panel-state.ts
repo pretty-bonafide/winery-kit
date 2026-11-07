@@ -31,19 +31,19 @@
 // It is only ever asserted from an affirmative `hasCartProduct: false` —
 // callers that don't know (direct view-model builds) keep the purchasable
 // default.
-import type { AddToCartInput, CartLine } from '../cart/cart-types';
-import { formatUsdCents } from '../money';
+import type { AddToCartInput, CartLine } from '../cart/cart-types.js';
+import { formatUsdCents } from '../money.js';
 import type {
   CustomerMembership,
   QuantityLimit,
   VariationAvailability,
   VariationPricing,
-} from '../storefront-api/customer-context';
+} from '../storefront-api/customer-context.js';
 import type {
   StorefrontProduct,
   StorefrontProductOption,
   StorefrontProductVariation,
-} from '../storefront-api/products';
+} from '../storefront-api/products.js';
 
 export type PurchaseLens = 'retail' | 'allocation';
 

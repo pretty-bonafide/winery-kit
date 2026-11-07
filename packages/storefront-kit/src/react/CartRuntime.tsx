@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { cartStore } from '../cart/cart-store';
-import { restCartAdapter } from '../cart/rest-cart-client';
-import { customerCommerceStore } from '../storefront-api/customer-commerce-store';
-import { createStorefrontApiCartAdapter } from '../cart/storefront-api-cart-adapter';
-import { configureUtmStorage } from '../utm/storage';
+import { cartStore } from '../cart/cart-store.js';
+import { restCartAdapter } from '../cart/rest-cart-client.js';
+import { customerCommerceStore } from '../storefront-api/customer-commerce-store.js';
+import { createStorefrontApiCartAdapter } from '../cart/storefront-api-cart-adapter.js';
+import { configureUtmStorage } from '../utm/storage.js';
 
 interface StorefrontApiRuntimeConfig {
   baseUrl: string;

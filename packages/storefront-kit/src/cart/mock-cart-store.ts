@@ -2,8 +2,8 @@
 // development. Production winery sites require Storefront API config and should
 // not silently fall back to this store. Mock carts start empty — a seeded line in
 // production would read as a real cart with items that were never added.
-import type { AddToCartInput, CartLine, CartSnapshot } from './cart-types';
-import { sameCartLine } from './optimistic';
+import type { AddToCartInput, CartLine, CartSnapshot } from './cart-types.js';
+import { sameCartLine } from './optimistic.js';
 
 export type MockCartLine = CartLine;
 export type MockCartSnapshot = CartSnapshot;

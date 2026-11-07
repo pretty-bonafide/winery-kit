@@ -1,5 +1,5 @@
-import { appendUtmToUrl } from '../utm/core';
-import { readStoredUtm } from '../utm/storage';
+import { appendUtmToUrl } from '../utm/core.js';
+import { readStoredUtm } from '../utm/storage.js';
 import type {
   AddToCartInput,
   CartAdapter,
@@ -7,8 +7,8 @@ import type {
   CartLine,
   CartPromotionView,
   CartSnapshot,
-} from './cart-types';
-import { CartRequestError, toCartErrorPayload } from './cart-types';
+} from './cart-types.js';
+import { CartRequestError, toCartErrorPayload } from './cart-types.js';
 import {
   applyAddItem,
   applyRemoveItem,
@@ -16,9 +16,9 @@ import {
   isOptimisticLineId,
   optimisticLineId,
   sameCartLine,
-} from './optimistic';
-import { decidePromotionQuote } from './promotion-quote';
-import { restCartAdapter } from './rest-cart-client';
+} from './optimistic.js';
+import { decidePromotionQuote } from './promotion-quote.js';
+import { restCartAdapter } from './rest-cart-client.js';
 
 export interface CartStoreState {
   cart: CartSnapshot | null;

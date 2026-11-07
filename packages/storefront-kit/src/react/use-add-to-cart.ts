@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { cartStore } from '../cart/cart-store';
-import type { AddToCartInput, CartErrorPayload } from '../cart/cart-types';
-import { toCartErrorPayload } from '../cart/cart-types';
-import { useCartStore } from './use-cart-store';
+import { cartStore } from '../cart/cart-store.js';
+import type { AddToCartInput, CartErrorPayload } from '../cart/cart-types.js';
+import { toCartErrorPayload } from '../cart/cart-types.js';
+import { useCartStore } from './use-cart-store.js';
 
 export type AddToCartStatus = 'idle' | 'adding' | 'added' | 'error';
 
