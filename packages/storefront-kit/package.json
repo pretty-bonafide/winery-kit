@@ -1,6 +1,6 @@
 {
   "name": "@pretty-good/storefront-kit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "UNLICENSED",
   "description": "Pretty Good storefront integration kit for winery websites: Storefront API clients, cart store, purchase-panel state machine, UTM attribution, top-of-funnel analytics, and headless React components.",
