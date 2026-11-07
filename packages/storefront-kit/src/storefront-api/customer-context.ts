@@ -100,7 +100,15 @@ export interface QuantityLimit {
 
 export interface VariationAvailability {
   productVariationId: string;
-  permission: 'purchase' | 'wishlist' | 'unavailable';
+  /** The panel's purchase permission, translated from the store's `status`:
+   * - `purchase` — `available`: this visitor may buy (subject to canAddToCart
+   *   and the quantity cap);
+   * - `wishlist` — `by_request`: the request-to-purchase path;
+   * - `restricted` — entitlement-gated: someone can buy this, not this visitor
+   *   (anonymous, or signed in without an entitlement). The platform decides
+   *   it from entitlements; sites never supply it;
+   * - `unavailable` — `sold_out`: nobody can buy it now. */
+  permission: 'purchase' | 'wishlist' | 'restricted' | 'unavailable';
   canAddToCart: boolean;
   canAddToWishlist: boolean;
   quantityLimit: QuantityLimit | null;
@@ -209,18 +217,18 @@ function normalizePricingEntries(
   }));
 }
 
-// The store's availability `status` collapses into the panel's coarser purchase
-// `permission`: only `available` is purchasable and `by_request` routes to the
-// wishlist/request path; every other state blocks. The by-request vs
-// restricted/unavailable split is decided downstream from canAddToWishlist, so a
-// single blocking `permission` is all the core needs from this boundary.
+// The store's availability `status` maps one-to-one onto the panel's purchase
+// `permission` (renamed into the panel's vocabulary at this boundary). Only
+// `purchase` is purchasable; `restricted` is kept distinct from `unavailable`
+// because the retail ladder renders the entitlement gate (LIMITED ALLOCATION)
+// differently from a sold-out dead end.
 const STATUS_TO_PERMISSION: Record<
   z.infer<typeof availabilityStatusSchema>,
   VariationAvailability['permission']
 > = {
   available: 'purchase',
   by_request: 'wishlist',
-  restricted: 'unavailable',
+  restricted: 'restricted',
   sold_out: 'unavailable',
 };
 

@@ -112,8 +112,12 @@ compound API. Sites pick a **lens**; the lens decides which states are reachable
 - `not-allocated` (allocation) — member without (or with exhausted) entitlement: muted
   price, explanation copy, no CTA.
 - `restricted` (retail) — entitlement-gated wine on a public catalog: visible to
-  everyone, purchasable by allocated customers. Only ever asserted from an affirmative
-  offer-level `restricted` input (site/CMS-supplied). Copy is **scarcity-first**
+  everyone, purchasable by entitled customers. **The platform decides it**: asserted
+  when the availability read (answered for anonymous visitors too) reports
+  `status: 'restricted'` (kit `permission: 'restricted'`) for a blocked variation. Sites
+  must not supply it from the CMS; the kit's old site-supplied `restricted` input is
+  deprecated and only asserts the state when the platform returned no row for the
+  variation. Copy is **scarcity-first**
   ("LIMITED ALLOCATION" / "Reserved for select members"), never membership mechanics;
   full-strength price (gated, not gone); sign-in prompt (may reveal availability) +
   club/list CTA; never an enabled purchase CTA.
@@ -127,10 +131,12 @@ compound API. Sites pick a **lens**; the lens decides which states are reachable
   ("LIMIT 6 PER CUSTOMER", "LIMIT 2 REQUESTS PER CUSTOMER", from `publicQuantityLimit` /
   `requestCap` inputs), the personal counter ("4 OF 6 BOTTLES REMAINING") signed in.
 - `degraded` — a **first-class designed state**, not an environment fallback: nothing
-  blocked the purchase, but the page could not wire an add-to-cart input (for example,
-  no storefront product or sellable variation resolved). Renders the CMS fallback price and a **disabled**
-  "UNAVAILABLE" CTA. Only ever asserted from an affirmative "no cart product" fact —
-  callers that don't know assume purchasable.
+  blocked the purchase, but the page could not establish that it may be bought — no
+  add-to-cart input could be wired (for example, no storefront product or sellable
+  variation resolved), or, on the retail lens, the availability read failed. Renders
+  the CMS fallback price and a **disabled** "UNAVAILABLE" CTA. Only ever asserted from
+  affirmative facts ("no cart product", "availability read failed") — callers that
+  don't know assume purchasable.
 
 Precedence — customer-meaningful facts win:
 - `in-cart` outranks everything (the line is already held).
@@ -139,10 +145,13 @@ Precedence — customer-meaningful facts win:
 - Availability facts (`unavailable` / `not-allocated` / `restricted`) outrank the
   `degraded` wiring gap.
 - The allocation lens **fails closed**: when a credentialed read fails or hasn't loaded,
-  render `members-only` — never fabricate `not-allocated` from missing data. The retail
-  lens degrades the same reads to the anonymous retail render — except a `restricted`
-  offer, which communicates its gate rather than defaulting to purchasable (never
-  fabricate purchasability of a gated wine).
+  render `members-only` — never fabricate `not-allocated` from missing data.
+- The retail lens **fails closed too**: the availability read is what tells a gated wine
+  from a purchasable one, so the add-to-cart CTA stays disabled (pending, add label)
+  while the read is in flight, and a failed read renders `degraded` (logged) — never
+  fabricate purchasability of what may be a gated wine. A loaded read that carries no
+  row for the selected variation keeps the public default (purchasable); the platform
+  still enforces the gate at cart mutation.
 
 Every reachable state must have a designed render per site (the Pencil per-state mock
 sheets). Sites compose `PurchasePanel.States`, whose props are lens-discriminated so

@@ -5,7 +5,8 @@
 //
 // Two purchase lenses share this machine:
 // - `retail` (default): public catalog — anonymous visitors can buy; the
-//   availability read only ever *blocks* a purchase (allocation caps, stock).
+//   availability read (answered for anonymous visitors too) only ever *blocks*
+//   a purchase (entitlement gate, allocation caps, stock).
 //   States: purchasable | in-cart | unavailable | restricted | by-request | degraded.
 // - `allocation`: members-only store — membership gates everything, and the
 //   member's entitlement decides purchasable vs not-allocated. Anonymous and
@@ -13,11 +14,13 @@
 //   States: members-only | purchasable | in-cart | not-allocated | by-request | degraded.
 //
 // `restricted` (retail) is the per-wine entitlement gate: visible to everyone,
-// purchasable by allocated customers. Only ever asserted from an affirmative
-// `restricted: true` input (offer-level fact — site/CMS-supplied until a
-// public availability API lands);
-// copy is scarcity-first (LIMITED ALLOCATION / "select members"), never
-// membership mechanics, and the price stays full-strength — gated, not gone.
+// purchasable by entitled customers. The platform decides it: asserted from
+// the availability read's `permission: 'restricted'` (store status
+// `restricted` — anonymous visitors and signed-in visitors without an
+// entitlement), never from the CMS. Copy is scarcity-first (LIMITED ALLOCATION
+// / "select members"), never membership mechanics, and the price stays
+// full-strength — gated, not gone. (The deprecated site-supplied `restricted`
+// input still escalates to this state; see PurchasePanelInput.restricted.)
 //
 // `by-request` is the platform wishlist: a *request to purchase* that may be
 // approved immediately, not a notify-me list. Asserted from affirmative
@@ -26,11 +29,13 @@
 // open means more to the customer than "you can't buy this".
 //
 // `degraded` is the display-only state: nothing blocked the purchase, but the
-// page could not wire an add-to-cart input (no storefront product or sellable
-// variation resolved), so the panel shows the price with a disabled CTA.
-// It is only ever asserted from an affirmative `hasCartProduct: false` —
-// callers that don't know (direct view-model builds) keep the purchasable
-// default.
+// page could not establish that it may be bought — no add-to-cart input could
+// be wired (no storefront product or sellable variation resolved), or, on the
+// retail lens, the availability read failed — so the panel shows the price
+// with a disabled CTA. It is only ever asserted from affirmative facts
+// (`hasCartProduct: false`, `availabilityReadFailed: true`) — callers that
+// don't know (direct view-model builds, reads still in flight) keep the
+// purchasable default.
 import type { AddToCartInput, CartLine } from '../cart/cart-types';
 import { formatUsdCents } from '../money';
 import type {
@@ -198,9 +203,20 @@ export interface PurchasePanelInput {
   /** Club-discount marketing teaser, shown to non-members on purchasable PDPs.
    * Pass only when the brand runs club discounts; the kit gates rendering. */
   clubUpsell?: ClubUpsell;
-  /** Affirmative offer-level entitlement gate ("this wine is restricted") —
-   * site/CMS-supplied until the public availability API lands. Only `true`
-   * ever asserts the restricted state; omit when unknown. */
+  /** Retail lens: an affirmative `true` means the availability read failed
+   * (errored or returned an unparseable body), so there is no platform fact
+   * about this visitor's permission. The panel fails closed into `degraded`
+   * rather than fabricating purchasable for what may be a gated wine. Omit
+   * while the read is in flight or when unknown. The allocation lens already
+   * fails closed on missing data (members-only) and ignores this. */
+  availabilityReadFailed?: boolean;
+  /** @deprecated The platform now decides the entitlement gate: the
+   * availability read reports `permission: 'restricted'` per variation, for
+   * anonymous visitors too. Kept only while a site still sets it from CMS
+   * data; remove once no consumer passes it.
+   * Only `true` asserts the restricted state, and only when there is NO
+   * availability row for the selected variation: any platform row (purchase,
+   * request path, sold out, gate) owns the state — one owner per field. */
   restricted?: boolean;
   /** Public per-customer cap on the offer (a fact that exists signed out) —
    * drives the scarcity cap row in restricted / members-only states. */
@@ -306,6 +322,7 @@ export function buildPurchasePanelView(input: PurchasePanelInput): PurchasePanel
       : resolveRetailPanelState({
           cartLine,
           availability: selectedAvailability,
+          availabilityReadFailed: input.availabilityReadFailed,
           hasCartProduct: input.hasCartProduct,
           restricted: input.restricted,
         });
@@ -635,39 +652,55 @@ function matchesOptionSelection(
   );
 }
 
-// Retail: the availability read only ever blocks (caps, stock); absence of
-// data means the public catalog default — purchasable, UNLESS the offer is
-// affirmatively restricted (a gated wine never fabricates purchasability).
-// Availability facts outrank the degraded wiring gap — they mean more to the
-// customer than "this page couldn't build a cart input" — and an open request
-// path (by-request) outranks every dead end.
+// Retail ladder. The platform answers the availability read for every
+// visitor (anonymous included) and it only ever blocks: a blocked variation
+// resolves by-request when the request path is open (it outranks every dead
+// end), restricted when the platform reports the entitlement gate, else
+// unavailable (sold out, cap exhausted). Availability facts outrank the
+// degraded wiring gap — they mean more to the customer than "this page
+// couldn't build a cart input".
+//
+// Fail closed when availability is absent: if the read FAILED there is no
+// platform fact about this visitor, and the wine may be gated — degrade
+// (price visible, CTA disabled) rather than fabricate purchasable. While the
+// read is in flight the island keeps the CTA disabled (pending), so the
+// purchasable default below is only ever reached with no read at all (mock
+// commerce, direct view-model builds) or with a loaded read that carries no
+// row for this variation.
 function resolveRetailPanelState(context: {
   cartLine?: CartLine;
   availability?: VariationAvailability;
+  availabilityReadFailed?: boolean;
   hasCartProduct?: boolean;
   restricted?: boolean;
 }): PurchasePanelState {
   if (context.cartLine) return 'in-cart';
 
   const availability = context.availability;
-  if (
-    availability &&
-    (!availability.canAddToCart ||
-      availability.permission === 'unavailable' ||
-      availability.quantityLimit?.available === 0)
-  ) {
+  if (availability && isBlocked(availability)) {
     if (availability.canAddToWishlist) return 'by-request';
-    if (context.restricted) return 'restricted';
+    if (availability.permission === 'restricted') return 'restricted';
     return 'unavailable';
   }
 
-  // Gated offer with no affirmative purchase fact for this visitor:
-  // communicate the gate (scarcity-first), don't default to purchasable.
-  if (!availability && context.restricted) return 'restricted';
+  if (!availability) {
+    // Deprecated site-supplied gate (see PurchasePanelInput.restricted).
+    if (context.restricted) return 'restricted';
+    if (context.availabilityReadFailed) return 'degraded';
+  }
 
   if (context.hasCartProduct === false) return 'degraded';
 
   return 'purchasable';
+}
+
+// A variation this visitor can't add to the cart right now, for any reason.
+function isBlocked(availability: VariationAvailability): boolean {
+  return (
+    !availability.canAddToCart ||
+    availability.permission !== 'purchase' ||
+    availability.quantityLimit?.available === 0
+  );
 }
 
 // Allocation ladder: in-cart wins (the line is already held), then membership
@@ -689,11 +722,7 @@ function resolveAllocationPanelState(context: {
   if (!context.hasAvailabilityData) return 'members-only';
 
   const availability = context.availability;
-  if (
-    !availability?.canAddToCart ||
-    availability.permission !== 'purchase' ||
-    availability.quantityLimit?.available === 0
-  ) {
+  if (!availability || isBlocked(availability)) {
     // An open request path outranks the not-allocated dead end (platform
     // wishlist = request to purchase, possibly approved immediately).
     if (availability?.canAddToWishlist) return 'by-request';

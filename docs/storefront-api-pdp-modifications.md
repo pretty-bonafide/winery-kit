@@ -76,8 +76,8 @@ SSR (Astro worker)                     Browser (PDP island, credentialed)
 +----------------------------------------------------------------------+
 ```
 
-If a credentialed fetch fails or returns no customer data, the PDP renders the anonymous
-retail experience — same degradation philosophy as auth (§7) and cart (§1).
+If a credentialed fetch fails, the PDP fails closed (§7): it never fabricates a
+purchasable state for what may be an entitlement-gated wine.
 
 ---
 
@@ -292,9 +292,11 @@ Response shape per variation:
 Scenario 04 renders "0 OF 6 BOTTLES REMAINING" from `quantityLimit` and the
 release name from `grant.name`. `quantityLimit.available === 0` or
 `status: 'sold_out'` triggers the **unavailable** purchase state preemptively.
-`status: 'by_request'` routes to the request/wishlist state. The kit normalizes
-this wire vocabulary to its panel model (`permission` + `grantContext`) at the
-storefront boundary.
+`status: 'by_request'` routes to the request/wishlist state, and
+`status: 'restricted'` (entitlement-gated for this visitor, anonymous included) to
+the retail **restricted** state. The kit normalizes this wire vocabulary to its panel
+model (`permission` + `grantContext`; `available`→`purchase`, `by_request`→`wishlist`,
+`restricted`→`restricted`, `sold_out`→`unavailable`) at the storefront boundary.
 
 ### M5 — Structured cart error codes — mostly existed; `quantityLimit` added
 
@@ -382,7 +384,7 @@ join CTA (muted price + explanatory note only).
 2. **`src/lib/storefront-api/customer-context.ts`** — credentialed
    `POST /purchase-context` fetcher for pricing, customer availability, and
    memberships in one round trip; narrower fetchers remain for focused callers.
-   Every failure degrades to `null` (anonymous experience).
+   Every failure degrades to `null`, which the panel renders fail-closed (§7).
 3. **PDP island** — `src/components/pdp/<Brand>PurchasePanel.tsx` (imperative shell)
    over the pure view-model core `src/lib/pdp/purchase-panel-state.ts`: format
    selection, member pricing swap from `purchase-context`, entitlement-driven
@@ -399,11 +401,13 @@ join CTA (muted price + explanatory note only).
 
 Consistent with the existing requirements doc:
 
-- `purchase-context` fails or anonymous → retail prices from the product read,
-  no savings UI, no badge, and no preemptive customer entitlement gating.
+- Anonymous → retail prices from the product read, no savings UI, no badge; the
+  availability block still applies, so an entitlement-gated wine renders `restricted`.
+- `purchase-context` fails → retail lens renders `degraded` (CMS price, disabled CTA,
+  logged), allocation lens renders `members-only`. Neither fabricates purchasable. While
+  the read is in flight the retail CTA stays disabled with the add label.
 - Empty memberships → plain signed-in (or anonymous) state.
 - Customer entitlement availability gaps still get enforced server-side at
   cart-add time via M5 error mapping.
 - Wishlist/waitlist deferred → scenario 04 renders price muted + explanatory note, no CTA.
-- Nothing above may block page render; every fetch failure falls back to the anonymous
-  SSR experience.
+- Nothing above may block page render.

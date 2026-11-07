@@ -11,8 +11,12 @@
 // UNAVAILABLE before the product lands.
 //
 // Lens behavior:
-// - retail: purchase-context fetches fire immediately (anonymous credentialed
-//   reads degrade to null and the panel renders the public retail state).
+// - retail: purchase-context fetches fire immediately — the platform answers
+//   them for anonymous visitors too, and its per-variation availability is what
+//   decides purchasable vs restricted (the entitlement gate) vs unavailable.
+//   While that read is in flight the CTA stays disabled (pending), and if it
+//   fails the panel fails closed into `degraded` (logged) — never a fabricated
+//   purchasable for what may be a gated wine.
 // - allocation: the storefront session is read first; purchase context is only
 //   fetched for authenticated visitors, and every failure fails closed into
 //   the members-only state (logged — a member seeing JOIN THE WAITING LIST
@@ -81,8 +85,9 @@ export interface UsePurchasePanelOptions {
    * to non-members on purchasable PDPs. Omit when the brand runs no club
    * discounts — the panel renders nothing for it. */
   clubUpsell?: ClubUpsell;
-  /** Affirmative offer-level entitlement gate — site/CMS-supplied until the
-   * public availability API lands. Only `true` asserts the restricted state. */
+  /** @deprecated The platform decides the entitlement gate (availability
+   * `permission: 'restricted'`); sites must not supply it. Kept only while a
+   * site still sets it from CMS data — see PurchasePanelInput.restricted. */
   restricted?: boolean;
   /** Public per-customer cap (offer-level fact) — the scarcity cap row. */
   publicQuantityLimit?: number;
@@ -135,6 +140,10 @@ export interface UsePurchasePanelResult {
 const NO_VARIATIONS: StorefrontProductVariation[] = [];
 const EMPTY_CANDIDATES: AlternativeCandidate[] = [];
 
+/** Lifecycle of the credentialed purchase-context read. `idle` = never
+ * requested (mock commerce, no variations, or an anonymous allocation visitor). */
+type ContextRead = 'idle' | 'pending' | 'loaded' | 'failed';
+
 export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchasePanelResult {
   const {
     storefrontApi,
@@ -164,6 +173,7 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
   const [availability, setAvailability] = useState<VariationAvailability[] | null>(null);
   const [memberships, setMemberships] = useState<CustomerMembership[] | null>(null);
   const [errorLimit, setErrorLimit] = useState<QuantityLimit | null>(null);
+  const [contextRead, setContextRead] = useState<ContextRead>('idle');
   // null = the client product read hasn't resolved yet (pending). A resolved
   // value always has a variations array and a possibly-null cartProduct.
   const [resolution, setResolution] = useState<ResolvedCartProduct | null>(null);
@@ -187,20 +197,25 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
 
     function fetchCustomerContext(variationIds: string[]) {
       const client = createCustomerContextClient(storefrontApi as StorefrontApiConfig);
+      setContextRead('pending');
 
       void client.fetchPurchaseContext(variationIds).then((context) => {
-        if (context == null && lens === 'allocation') {
-          // Without affirmative data the view model degrades to members-only
-          // rather than asserting "Not in your current allocation".
+        if (cancelled) return;
+        if (context == null) {
+          // Without affirmative data the view model fails closed — never
+          // silently: allocation degrades to members-only rather than asserting
+          // "Not in your current allocation"; retail degrades rather than
+          // offering a purchase the platform may refuse.
           console.error(
-            'usePurchasePanel: purchase context unavailable — member sees the members-only state.',
+            lens === 'allocation'
+              ? 'usePurchasePanel: purchase context unavailable — member sees the members-only state.'
+              : 'usePurchasePanel: purchase context unavailable — rendering the degraded state.',
           );
         }
-        if (!cancelled) {
-          setPricing(context?.pricing ?? null);
-          setAvailability(context?.availability ?? null);
-          setMemberships(context?.memberships ?? null);
-        }
+        setPricing(context?.pricing ?? null);
+        setAvailability(context?.availability ?? null);
+        setMemberships(context?.memberships ?? null);
+        setContextRead(context == null ? 'failed' : 'loaded');
       });
     }
 
@@ -308,6 +323,7 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
         cartLines: cart?.lines ?? [],
         fallbackPriceLabel,
         hasCartProduct,
+        availabilityReadFailed: contextRead === 'failed',
         errorQuantityLimit: errorLimit,
         unitNoun,
         clubUpsell,
@@ -320,6 +336,7 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       availability,
       cart,
       clubUpsell,
+      contextRead,
       errorLimit,
       fallbackPriceLabel,
       hasCartProduct,
@@ -358,7 +375,9 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     policy: {
       kind: 'resolved',
       canPurchase: view.canPurchase,
-      pending: isProductPending,
+      // Retail: the purchase-context read is what tells a gated wine from a
+      // purchasable one, so the CTA waits for it too (disabled, add label).
+      pending: isProductPending || (lens === 'retail' && contextRead === 'pending'),
     },
   });
 
