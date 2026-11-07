@@ -8,7 +8,7 @@ per-winery site repos.
 
 | Path | Purpose |
 |------|---------|
-| `packages/storefront-kit` | `@pretty-good/storefront-kit` — Storefront API clients (products, auth, customer context), cart store + adapters, the unified PDP purchase-panel state machine (retail + allocation lenses), UTM attribution, and headless React components/hooks |
+| `packages/storefront-kit` | `@pretty-good/storefront-kit` — Storefront API clients (products, auth, customer context), cart store + adapters, the unified PDP purchase-panel state machine (retail + allocation lenses), UTM attribution, top-of-funnel analytics (Amplitude), and headless React components/hooks |
 | `packages/winery-ui` | `@pretty-good/winery-ui` — presentational components over the headless hooks (PurchasePanel). Structure + behavior shared; ALL visual styling injected per-brand via `classes` slot maps. `react` and `@pretty-good/storefront-kit` are PEERS so the site's cart-store singleton is shared — never list them as deps |
 | `docs/` | Canonical cross-site docs: `winery-store-requirements.md`, `storefront-api-pdp-modifications.md` (the Storefront API wire contract), product page architecture, themeable component conventions |
 | `PLAYBOOK.md` | The end-to-end playbook for onboarding a new winery website |
@@ -113,6 +113,95 @@ copy one into a new site's `CartSidebarTheme` and retune.
 **Building the next themeable component?** Follow
 [`docs/themeable-component-template.md`](docs/themeable-component-template.md) — the
 reusable View/Theme/Storybook conventions, with `CartSidebar` as the worked example.
+
+## Analytics (Amplitude)
+
+`@pretty-good/storefront-kit/analytics` sends a fixed top-of-funnel schema to
+the winery's own Amplitude project (one project, one browser API key, per
+winery). Purchases and orders are out of scope.
+
+| Event | Fired by | Properties (besides `site` + stored `utm_*`) |
+|-------|----------|-----------------------------------------------|
+| `page_viewed` | the site, via `trackPageView()` | `path` (no query string) |
+| `product_viewed` | `usePurchasePanel`, once per mount, when its product has resolved and half of the `viewRef` element has been on screen | `product_slug`, `product_name`, `price_cents` |
+| `product_added_to_cart` | `useAddToCart`, after a successful add | `product_slug`, `product_name`, `price_cents`, `quantity` |
+| `checkout_started` | `useCartSidebar().checkout` (the `CartSidebar` button) | `cart_item_count`, `cart_subtotal_cents` |
+
+`utm_*` are the visitor's stored acquisition from `captureUtmFromLocation`,
+reported unchanged (RULES.md §3). Money is always integer cents.
+
+`product_viewed` counts wines the visitor saw, not panels that mounted: a
+one-page site mounts every wine's panel on load. Attach the hook's `viewRef` to
+the element that shows the wine (winery-ui's `PurchasePanelRoot` does this for
+you). A panel with nothing attached reports no views.
+
+1. Install the optional peer in the site: `pnpm add @amplitude/analytics-browser`.
+   Sites that never import `/analytics` don't need it and ship none of it.
+2. Initialize in the site layout's `<head>`, so it runs before islands emit
+   (events tracked before `initAnalytics` is called are dropped; events tracked
+   while the SDK loads are queued):
+
+   ```astro
+   <script>
+     import { initAnalytics, trackPageView } from '@pretty-good/storefront-kit/analytics';
+
+     void initAnalytics({ apiKey: import.meta.env.PUBLIC_AMPLITUDE_API_KEY, site: 'paco' });
+     // Client Router sites: astro:page-load fires on the first load and every
+     // navigation. Without the Client Router, call trackPageView() once instead.
+     document.addEventListener('astro:page-load', trackPageView);
+   </script>
+   ```
+
+An unset `PUBLIC_AMPLITUDE_API_KEY` turns analytics off (every `track` is a
+no-op); a key set to an empty string throws, because that is a provisioning
+mistake. The SDK starts cookie-light: autocapture and remote config off,
+identity in localStorage, no IP address on events. A failed SDK load warns once
+and drops events; analytics never breaks commerce.
+
+### First-party endpoint (`serverUrl` + `/analytics-proxy`)
+
+Ad and DNS blockers filter `api2.amplitude.com`, so a blocked visitor's events
+never arrive. To avoid that, the SDK posts to the site's own origin and a site
+endpoint forwards the upload to Amplitude.
+
+`initAnalytics` takes an optional `serverUrl`: a same-origin path (`/api/e`),
+resolved against the page's origin, or an absolute `https://` URL. Anything else
+throws. Leave it unset to post to Amplitude directly.
+
+`@pretty-good/storefront-kit/analytics-proxy` is server-only and never loads the
+SDK. It exports `forwardToAmplitude(request, { serverZone?, fetch? })`, which
+posts the body to Amplitude's HTTP V2 API (`api2.amplitude.com`, or
+`api.eu.amplitude.com` for `serverZone: 'EU'`) and returns Amplitude's status
+and body. The upstream is fixed, so the endpoint can't be used as an open proxy.
+Only the JSON body is sent upstream: no cookies, client headers or IP. It answers
+405 (with `Allow: POST`) to other methods, 415 to a body that isn't uncompressed
+JSON, 413 to one over Amplitude's 1 MB limit, 400 to invalid JSON, and 502 when
+Amplitude can't be reached.
+
+On Astro with the Cloudflare adapter, add an on-demand endpoint:
+
+```ts
+// src/pages/api/e.ts
+import { forwardToAmplitude } from '@pretty-good/storefront-kit/analytics-proxy';
+import type { APIRoute } from 'astro';
+
+export const prerender = false;
+export const POST: APIRoute = ({ request }) => forwardToAmplitude(request);
+export const ALL: APIRoute = ({ request }) => forwardToAmplitude(request); // 405
+```
+
+Then pass `serverUrl: '/api/e'` to `initAnalytics`. Use a neutral path: blocker
+lists match words like `analytics`, `amplitude`, `track` or `collect`. Use the
+same `serverZone` in both calls.
+
+Location comes from Cloudflare, at city level. Through the endpoint, the upload
+request's IP is the Worker's, not the visitor's, so the forwarder adds the
+visitor's `country` (English name), `region` and `city` from `request.cf` to each
+event that doesn't already have them, and strips any `ip` from events (the SDK
+sends none, because `trackingOptions.ipAddress` is false). Coordinates, postal
+code and DMA aren't sent. No visitor IP is sent to Amplitude or stored. Amplitude
+doesn't document whether these fields win over its own lookup of the request IP,
+so check a staging event's location before relying on it.
 
 ## Standard cross-site conventions
 

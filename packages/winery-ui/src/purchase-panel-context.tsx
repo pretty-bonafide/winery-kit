@@ -41,6 +41,7 @@ export function PurchasePanelRoot({ className, children, ...options }: PurchaseP
       value={{ ...panel, unitNoun: options.unitNoun ?? 'bottle' }}
     >
       <section
+        ref={panel.viewRef}
         className={className}
         data-purchase-state={panel.view.state}
         data-hydrated={panel.isHydrated ? 'true' : 'false'}

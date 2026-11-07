@@ -1,11 +1,19 @@
 {
   "name": "@pretty-good/storefront-kit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "UNLICENSED",
-  "description": "Pretty Good storefront integration kit for winery websites: Storefront API clients, cart store, purchase-panel state machine, UTM attribution, and headless React components.",
+  "description": "Pretty Good storefront integration kit for winery websites: Storefront API clients, cart store, purchase-panel state machine, UTM attribution, top-of-funnel analytics, and headless React components.",
   "files": ["dist"],
   "exports": {
+    "./analytics": {
+      "types": "./dist/analytics/index.d.ts",
+      "default": "./dist/analytics/index.js"
+    },
+    "./analytics-proxy": {
+      "types": "./dist/analytics-proxy/index.d.ts",
+      "default": "./dist/analytics-proxy/index.js"
+    },
     "./storefront-api": {
       "types": "./dist/storefront-api/index.d.ts",
       "default": "./dist/storefront-api/index.js"
@@ -55,9 +63,16 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
+    "@amplitude/analytics-browser": "^2.48.1",
     "react": "^19.0.0"
   },
+  "peerDependenciesMeta": {
+    "@amplitude/analytics-browser": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@amplitude/analytics-browser": "2.48.1",
     "@storybook/react-vite": "^10.4.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
