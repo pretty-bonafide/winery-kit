@@ -48,9 +48,9 @@ Build the kit before installing/building a site:
 cd winery-kit && pnpm install && pnpm build
 ```
 
-(Publishing to a registry — e.g. GitHub Packages — is the intended next step
-once the kit's API settles; `file:` keeps iteration cheap while the first four
-sites prove it out.)
+Versioned releases are also published as GitHub Release tarballs that a site can
+install by URL with no token. See [`docs/releasing.md`](docs/releasing.md) for
+how to cut a release, install, upgrade and develop against a local kit.
 
 ### Keeping `dist/` fresh in dev
 
@@ -86,6 +86,7 @@ The documentation model is layered:
 - `PLAYBOOK.md` — repeatable onboarding/build/launch process.
 - `docs/winery-store-requirements.md` — canonical commerce contract.
 - `docs/documentation-strategy.md` — docs lifecycle and ownership rules.
+- `docs/releasing.md` — cutting releases and installing them in a site.
 
 ## Storybook
 

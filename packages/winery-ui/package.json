@@ -1,13 +1,10 @@
 {
   "name": "@pretty-good/winery-ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "UNLICENSED",
   "description": "Presentational component library for Pretty Good winery sites. Behavior built on @pretty-good/storefront-kit's headless hooks; brands either use the pre-assembled PurchasePanel (class slots) or compose PurchasePanel.Root + compound parts for structural control.",
   "files": ["dist"],
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -20,7 +17,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "peerDependencies": {
-    "@pretty-good/storefront-kit": "^0.1.0",
+    "@pretty-good/storefront-kit": "^0.2.0",
     "react": "^19.0.0"
   },
   "devDependencies": {

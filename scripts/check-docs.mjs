@@ -74,6 +74,7 @@ for (const required of [
   'PLAYBOOK.md',
   'docs/winery-store-requirements.md',
   'docs/documentation-strategy.md',
+  'docs/releasing.md',
 ]) {
   if (!existsSync(join(wineryKitRoot, required))) {
     fail(`Missing canonical doc: ${required}`);
