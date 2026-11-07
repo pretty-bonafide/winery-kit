@@ -17,8 +17,9 @@ export interface RetailStateRenderers {
   purchasable: PurchaseStateRenderer;
   inCart: PurchaseStateRenderer;
   unavailable: PurchaseStateRenderer;
-  /** Entitlement-gated wine on the public catalog (offer-level `restricted`
-   * input): scarcity-first communication, never an enabled purchase CTA. */
+  /** Entitlement-gated wine on the public catalog (the platform's availability
+   * read reports `restricted` for this visitor): scarcity-first communication,
+   * never an enabled purchase CTA. */
   restricted: PurchaseStateRenderer;
   /** Wishlist-as-request-to-purchase: the open request path, full-strength
    * price, primary REQUEST CTA. */

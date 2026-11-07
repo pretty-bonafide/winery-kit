@@ -344,6 +344,27 @@ describe('buildPurchasePanelView', () => {
     expect(view.canPurchase).toBe(false);
   });
 
+  it('treats the platform entitlement gate as not-allocated (or by-request) for a member', () => {
+    const gated = (canAddToWishlist: boolean) =>
+      buildPurchasePanelView({
+        lens: 'allocation',
+        variations: [BOTTLE],
+        isAuthenticated: true,
+        memberships: ACTIVE_MEMBERSHIPS,
+        availability: [
+          {
+            ...ALLOCATED_AVAILABILITY[0],
+            permission: 'restricted',
+            canAddToCart: false,
+            canAddToWishlist,
+          },
+        ],
+      }).state;
+
+    expect(gated(false)).toBe('not-allocated');
+    expect(gated(true)).toBe('by-request');
+  });
+
   it('never renders the system "universal" grant name in the not-allocated note', () => {
     const view = buildPurchasePanelView({
       lens: 'allocation',

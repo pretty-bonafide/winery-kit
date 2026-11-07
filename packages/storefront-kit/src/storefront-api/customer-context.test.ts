@@ -88,7 +88,9 @@ describe('parseAvailabilityResponse', () => {
 
     expect(permissionFor('available')).toBe('purchase');
     expect(permissionFor('by_request')).toBe('wishlist');
-    expect(permissionFor('restricted')).toBe('unavailable');
+    // The entitlement gate survives the boundary — the retail ladder renders it
+    // as `restricted`, distinct from the sold-out dead end.
+    expect(permissionFor('restricted')).toBe('restricted');
     expect(permissionFor('sold_out')).toBe('unavailable');
   });
 
@@ -202,6 +204,35 @@ describe('parsePurchaseContextResponse', () => {
         { id: 'wcm_abc', clubId: 'club_123', clubName: '2022 Allocation', status: 'active' },
       ],
     });
+  });
+
+  it('carries the anonymous entitlement gate verbatim from the platform', () => {
+    // What anonymous POST /purchase-context returns for a members-only wine.
+    const result = parsePurchaseContextResponse({
+      pricing: [],
+      memberships: [],
+      availability: [
+        {
+          productVariationId: 'var_bottle',
+          status: 'restricted',
+          canAddToCart: false,
+          canAddToWishlist: false,
+          quantityLimit: null,
+          grant: null,
+        },
+      ],
+    });
+
+    expect(result?.availability).toEqual([
+      {
+        productVariationId: 'var_bottle',
+        permission: 'restricted',
+        canAddToCart: false,
+        canAddToWishlist: false,
+        quantityLimit: null,
+        grantContext: null,
+      },
+    ]);
   });
 
   it('returns null when any combined block is malformed', () => {

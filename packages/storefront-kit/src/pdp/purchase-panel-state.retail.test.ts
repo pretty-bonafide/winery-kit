@@ -56,6 +56,18 @@ const EXHAUSTED_AVAILABILITY: VariationAvailability[] = [
   },
 ];
 
+function availabilityRow(overrides: Partial<VariationAvailability> = {}): VariationAvailability {
+  return {
+    productVariationId: 'var_bottle',
+    permission: 'purchase',
+    canAddToCart: true,
+    canAddToWishlist: false,
+    quantityLimit: null,
+    grantContext: null,
+    ...overrides,
+  };
+}
+
 const BOTTLE_CART_LINE: CartLine = {
   id: 'line_1',
   productId: 'prod_123',
@@ -202,10 +214,10 @@ describe('buildPurchasePanelView', () => {
     expect(degraded.clubUpsell).toBeUndefined();
   });
 
-  it('asserts restricted only from the affirmative offer flag (mock 06)', () => {
+  it('renders restricted from the platform entitlement gate for an anonymous visitor (mock 06)', () => {
     const view = buildPurchasePanelView({
       variations: [BOTTLE],
-      restricted: true,
+      availability: [availabilityRow({ permission: 'restricted', canAddToCart: false })],
       publicQuantityLimit: 6,
     });
 
@@ -215,49 +227,69 @@ describe('buildPurchasePanelView', () => {
     expect(view.scarcityNote).toBe(
       'Reserved for select members. Sign in to check your availability.',
     );
+    expect(view.unavailableNote).toBeUndefined();
     // Gated, not gone — price stays full-strength but never purchasable.
     expect(view.summary.price).toBe('$52');
     expect(view.canPurchase).toBe(false);
-
-    // Unknown gate → the public catalog default.
-    expect(buildPurchasePanelView({ variations: [BOTTLE] }).state).toBe('purchasable');
   });
 
-  it('lets affirmative purchase facts override the restricted gate (entitled visitor)', () => {
+  it('renders purchasable for an entitled visitor on the same gated wine', () => {
     const view = buildPurchasePanelView({
       variations: [BOTTLE],
-      restricted: true,
       availability: [
-        {
-          productVariationId: 'var_bottle',
+        availabilityRow({
           permission: 'purchase',
           canAddToCart: true,
-          canAddToWishlist: false,
           quantityLimit: { limit: 6, redeemed: 0, available: 6 },
-          grantContext: null,
-        },
+        }),
       ],
     });
 
     expect(view.state).toBe('purchasable');
     expect(view.scarcityStatus).toBeUndefined();
+    expect(view.canPurchase).toBe(true);
+  });
+
+  it('renders sold out as unavailable, never restricted', () => {
+    const view = buildPurchasePanelView({
+      variations: [BOTTLE],
+      availability: [availabilityRow({ permission: 'unavailable', canAddToCart: false })],
+    });
+
+    expect(view.state).toBe('unavailable');
+    expect(view.scarcityStatus).toBeUndefined();
+    expect(view.unavailableNote).toBe('This wine is not currently available for purchase.');
+  });
+
+  it('resolves the gate per selected variation', () => {
+    const availability = [
+      availabilityRow({ productVariationId: 'var_bottle', permission: 'purchase' }),
+      availabilityRow({
+        productVariationId: 'var_magnum',
+        permission: 'restricted',
+        canAddToCart: false,
+      }),
+    ];
+
+    expect(buildPurchasePanelView({ variations: [BOTTLE, MAGNUM], availability }).state).toBe(
+      'purchasable',
+    );
+    expect(
+      buildPurchasePanelView({
+        variations: [BOTTLE, MAGNUM],
+        availability,
+        selectedVariationId: 'var_magnum',
+      }).state,
+    ).toBe('restricted');
   });
 
   it('renders by-request when the wishlist path is open — it outranks every dead end (mock 07)', () => {
     const byRequestAvailability: VariationAvailability[] = [
-      {
-        productVariationId: 'var_bottle',
-        permission: 'wishlist',
-        canAddToCart: false,
-        canAddToWishlist: true,
-        quantityLimit: null,
-        grantContext: null,
-      },
+      availabilityRow({ permission: 'wishlist', canAddToCart: false, canAddToWishlist: true }),
     ];
 
     const view = buildPurchasePanelView({
       variations: [BOTTLE],
-      restricted: true, // by-request still wins over restricted
       availability: byRequestAvailability,
       requestCap: 2,
       requestHref: '/request/example-cabernet',
@@ -282,37 +314,110 @@ describe('buildPurchasePanelView', () => {
     });
     expect(withoutHref.state).toBe('by-request');
     expect(withoutHref.requestCta).toBeUndefined();
+
+    // An open request path outranks the entitlement gate too.
+    expect(
+      buildPurchasePanelView({
+        variations: [BOTTLE],
+        availability: [
+          availabilityRow({
+            permission: 'restricted',
+            canAddToCart: false,
+            canAddToWishlist: true,
+          }),
+        ],
+      }).state,
+    ).toBe('by-request');
   });
 
-  it('keeps blocked-without-wishlist on the restricted/unavailable split', () => {
-    const blocked: VariationAvailability[] = [
-      {
-        productVariationId: 'var_bottle',
-        permission: 'unavailable',
-        canAddToCart: false,
-        canAddToWishlist: false,
-        quantityLimit: null,
-        grantContext: null,
-      },
-    ];
-
+  it('blocks a non-purchase permission even when canAddToCart is set', () => {
     expect(
-      buildPurchasePanelView({ variations: [BOTTLE], availability: blocked, restricted: true })
-        .state,
-    ).toBe('restricted');
-    expect(buildPurchasePanelView({ variations: [BOTTLE], availability: blocked }).state).toBe(
-      'unavailable',
+      buildPurchasePanelView({
+        variations: [BOTTLE],
+        availability: [availabilityRow({ permission: 'wishlist', canAddToCart: true })],
+      }).state,
+    ).toBe('unavailable');
+  });
+
+  it('fails closed into degraded when the availability read failed', () => {
+    const view = buildPurchasePanelView({
+      variations: [BOTTLE],
+      availability: null,
+      availabilityReadFailed: true,
+      hasCartProduct: true,
+    });
+
+    expect(view.state).toBe('degraded');
+    expect(view.summary.price).toBe('$52');
+    expect(view.canPurchase).toBe(false);
+
+    // In flight / unknown → the purchasable default (the island keeps the CTA
+    // pending until the read settles).
+    expect(buildPurchasePanelView({ variations: [BOTTLE], hasCartProduct: true }).state).toBe(
+      'purchasable',
     );
   });
 
-  it('keeps in-cart ahead of the restricted gate', () => {
-    const view = buildPurchasePanelView({
-      variations: [BOTTLE],
-      restricted: true,
-      cartLines: [BOTTLE_CART_LINE],
+  it('keeps in-cart ahead of the entitlement gate and a failed read', () => {
+    expect(
+      buildPurchasePanelView({
+        variations: [BOTTLE],
+        availability: [availabilityRow({ permission: 'restricted', canAddToCart: false })],
+        cartLines: [BOTTLE_CART_LINE],
+      }).state,
+    ).toBe('in-cart');
+    expect(
+      buildPurchasePanelView({
+        variations: [BOTTLE],
+        availabilityReadFailed: true,
+        cartLines: [BOTTLE_CART_LINE],
+      }).state,
+    ).toBe('in-cart');
+  });
+
+  describe('deprecated site-supplied `restricted` input', () => {
+    it('escalates to restricted when there is no availability fact', () => {
+      expect(buildPurchasePanelView({ variations: [BOTTLE], restricted: true }).state).toBe(
+        'restricted',
+      );
+      expect(
+        buildPurchasePanelView({
+          variations: [BOTTLE],
+          restricted: true,
+          availabilityReadFailed: true,
+        }).state,
+      ).toBe('restricted');
     });
 
-    expect(view.state).toBe('in-cart');
+    it('never overrides any platform row — sold out, purchase, or the request path', () => {
+      expect(
+        buildPurchasePanelView({
+          variations: [BOTTLE],
+          restricted: true,
+          availability: [availabilityRow({ permission: 'unavailable', canAddToCart: false })],
+        }).state,
+      ).toBe('unavailable');
+      expect(
+        buildPurchasePanelView({
+          variations: [BOTTLE],
+          restricted: true,
+          availability: [availabilityRow({ permission: 'purchase' })],
+        }).state,
+      ).toBe('purchasable');
+      expect(
+        buildPurchasePanelView({
+          variations: [BOTTLE],
+          restricted: true,
+          availability: [
+            availabilityRow({
+              permission: 'wishlist',
+              canAddToCart: false,
+              canAddToWishlist: true,
+            }),
+          ],
+        }).state,
+      ).toBe('by-request');
+    });
   });
 
   it('omits the promotion name when the pricing preview applied no promotion', () => {
@@ -451,7 +556,7 @@ describe('buildPurchasePanelView', () => {
     expect(view.state).toBe('unavailable');
   });
 
-  it('degrades to retail when pricing and availability are null (fetch failed)', () => {
+  it('keeps purchasable with no read at all (direct view-model build)', () => {
     const view = buildPurchasePanelView({
       variations: [DEMI, BOTTLE, MAGNUM],
       pricing: null,
