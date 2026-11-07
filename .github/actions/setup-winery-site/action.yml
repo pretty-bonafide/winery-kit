@@ -1,0 +1,140 @@
+name: Setup winery site
+description: 'Checkout a winery site with the sibling winery-kit file: dependency and install both.'
+
+inputs:
+  winery-kit-token:
+    description: GitHub token with read access to pretty-bonafide/winery-kit.
+    required: true
+  winery-kit-ref:
+    description: winery-kit ref to check out.
+    required: false
+    default: main
+  site-path:
+    description: Checkout path for the caller site repository.
+    required: false
+    default: site
+  winery-kit-path:
+    description: Checkout path for the sibling winery-kit repository.
+    required: false
+    default: winery-kit
+  node-version:
+    description: Node.js version for site CI.
+    required: false
+    default: '24'
+  pnpm-version:
+    description: pnpm version for site CI.
+    required: false
+    default: '10'
+  build-winery-kit-command:
+    description: Command that installs and builds winery-kit packages.
+    required: false
+    default: pnpm install --frozen-lockfile && pnpm build
+  install-site-command:
+    description: Command that installs the site repository dependencies.
+    required: false
+    default: pnpm install --frozen-lockfile
+  site-sparse-checkout:
+    description: >-
+      Sparse-checkout patterns for the site checkout, one per line (passed to
+      actions/checkout `sparse-checkout`). Empty (the default) checks out the
+      whole tree. Use it to leave large paths a job never reads, such as
+      visual-regression goldens, out of deploy jobs.
+    required: false
+    default: ''
+  site-sparse-checkout-cone-mode:
+    description: >-
+      actions/checkout `sparse-checkout-cone-mode` for the site checkout. Set
+      'false' to use gitignore-style patterns, e.g. `/*` then `!/docs/big/`.
+    required: false
+    default: 'true'
+  dependency-cache:
+    description: >-
+      How the pnpm store is cached. `actions` (the default): pnpm/action-setup,
+      then actions/setup-node with `cache: pnpm` (GitHub Actions cache).
+      `none`: no store cache; Node first, then pnpm from npm. A frozen install
+      into an empty store downloads from the registry in about the time a
+      cache restore takes, and an ephemeral runner never stalls on the
+      restore.
+    required: false
+    default: actions
+
+runs:
+  using: composite
+  steps:
+    - name: Require winery-kit token
+      shell: bash
+      env:
+        WINERY_KIT_TOKEN: ${{ inputs.winery-kit-token }}
+      run: |
+        if [ -z "$WINERY_KIT_TOKEN" ]; then
+          echo "::error title=Missing WINERY_KIT_TOKEN::Set the WINERY_KIT_TOKEN secret to a token with read access to pretty-bonafide/winery-kit."
+          exit 1
+        fi
+
+    - name: Require a known dependency-cache mode
+      shell: bash
+      env:
+        DEPENDENCY_CACHE: ${{ inputs.dependency-cache }}
+      run: |
+        case "$DEPENDENCY_CACHE" in
+          actions|none) ;;
+          *) echo "::error title=Unknown dependency-cache::'$DEPENDENCY_CACHE' (expected actions or none)"; exit 1 ;;
+        esac
+
+    - name: Checkout site
+      uses: actions/checkout@v6
+      with:
+        path: ${{ inputs.site-path }}
+        sparse-checkout: ${{ inputs.site-sparse-checkout }}
+        sparse-checkout-cone-mode: ${{ inputs.site-sparse-checkout-cone-mode }}
+
+    - name: Checkout winery-kit
+      uses: actions/checkout@v6
+      with:
+        repository: pretty-bonafide/winery-kit
+        ref: ${{ inputs.winery-kit-ref }}
+        path: ${{ inputs.winery-kit-path }}
+        token: ${{ inputs.winery-kit-token }}
+
+    # dependency-cache: actions. setup-node's pnpm cache asks pnpm for its
+    # store path, so pnpm must be installed first.
+    - name: Setup pnpm
+      if: inputs.dependency-cache == 'actions'
+      uses: pnpm/action-setup@v6
+      with:
+        version: ${{ inputs.pnpm-version }}
+
+    - name: Setup Node.js
+      if: inputs.dependency-cache == 'actions'
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.site-path }}/pnpm-lock.yaml
+
+    # dependency-cache: none. Defensive: setup-node v6 auto-caches only for
+    # an npm `packageManager`, but keep it off explicitly.
+    - name: Setup Node.js (no dependency cache)
+      if: inputs.dependency-cache == 'none'
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+
+    # pnpm/action-setup takes ~8s on an ephemeral runner; npm takes ~2s.
+    - name: Setup pnpm (no dependency cache)
+      if: inputs.dependency-cache == 'none'
+      shell: bash
+      env:
+        PNPM_VERSION: ${{ inputs.pnpm-version }}
+      run: npm install --global --no-fund --no-audit "pnpm@$PNPM_VERSION" && pnpm --version
+
+    - name: Build winery-kit
+      shell: bash
+      working-directory: ${{ inputs.winery-kit-path }}
+      run: ${{ inputs.build-winery-kit-command }}
+
+    - name: Install site dependencies
+      shell: bash
+      working-directory: ${{ inputs.site-path }}
+      run: ${{ inputs.install-site-command }}

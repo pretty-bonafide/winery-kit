@@ -1,0 +1,17 @@
+{
+  "name": "winery-kit",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "build:watch": "pnpm -r --parallel build:watch",
+    "test": "pnpm -r test",
+    "check": "biome check ./packages",
+    "docs:check": "node scripts/check-docs.mjs",
+    "format": "biome format --write ./packages"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.16"
+  }
+}

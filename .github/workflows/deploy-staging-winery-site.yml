@@ -1,0 +1,96 @@
+name: Reusable Winery Site Staging Deploy
+
+on:
+  workflow_call:
+    inputs:
+      winery-kit-ref:
+        description: winery-kit ref to check out for the linked file dependency.
+        required: false
+        type: string
+        default: main
+      staging-url:
+        description: Public staging URL for the GitHub environment.
+        required: true
+        type: string
+      worker-name:
+        description: Cloudflare Worker name to deploy.
+        required: true
+        type: string
+      sanity-dataset:
+        description: Sanity dataset used for the staging build.
+        required: false
+        type: string
+        default: development
+      public-pg-storefront-api-url:
+        description: Optional public Storefront API URL baked into the staging client bundle.
+        required: false
+        type: string
+        default: ''
+      public-pg-publishable-key:
+        description: Optional publishable key baked into the staging client bundle.
+        required: false
+        type: string
+        default: ''
+      cloudflare-account-id:
+        description: Cloudflare account id for the staging deployment.
+        required: true
+        type: string
+    secrets:
+      WINERY_KIT_TOKEN:
+        required: true
+      SANITY_PROJECT_ID:
+        required: false
+      SANITY_PROJECT_API_TOKEN:
+        required: false
+      CLOUDFLARE_STAGE_API_TOKEN:
+        required: true
+
+jobs:
+  deploy-staging:
+    name: Build & Deploy Staging
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    environment:
+      name: staging
+      url: ${{ inputs.staging-url }}
+
+    steps:
+      - name: Setup site and linked winery-kit
+        uses: pretty-bonafide/winery-kit/.github/actions/setup-winery-site@main
+        with:
+          winery-kit-token: ${{ secrets.WINERY_KIT_TOKEN }}
+          winery-kit-ref: ${{ inputs.winery-kit-ref }}
+
+      - name: Biome and Knip check
+        working-directory: site
+        run: pnpm check
+
+      - name: Unit tests
+        working-directory: site
+        run: pnpm test
+
+      - name: Story smoke tests
+        working-directory: site
+        run: pnpm test:stories
+
+      - name: Build site
+        working-directory: site
+        run: pnpm build
+        env:
+          SANITY_PROJECT_ID: ${{ secrets.SANITY_PROJECT_ID }}
+          SANITY_DATASET: ${{ inputs.sanity-dataset }}
+          SANITY_PROJECT_API_TOKEN: ${{ secrets.SANITY_PROJECT_API_TOKEN }}
+          PREVIEW_MODE_DEFAULT: 'true'
+          PUBLIC_PG_STOREFRONT_API_URL: ${{ inputs.public-pg-storefront-api-url }}
+          PUBLIC_PG_PUBLISHABLE_KEY: ${{ inputs.public-pg-publishable-key }}
+
+      - name: Target the Stage account
+        working-directory: site
+        run: node -e "const fs=require('fs');const p=require('path').resolve('dist/server/wrangler.json');const c=JSON.parse(fs.readFileSync(p,'utf8'));delete c.account_id;fs.writeFileSync(p,JSON.stringify(c))"
+
+      - name: Deploy staging worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_STAGE_API_TOKEN }}
+          accountId: ${{ inputs.cloudflare-account-id }}
+          workingDirectory: site
+          command: deploy --config dist/server/wrangler.json --name ${{ inputs.worker-name }}

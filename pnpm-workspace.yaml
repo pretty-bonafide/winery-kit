@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+  - apps/*
+# pnpm 11 errors (ERR_PNPM_IGNORED_BUILDS) on unapproved build scripts; esbuild
+# (transitive via vite/vitest/storybook) is the only one. Approving it here is a
+# no-op under pnpm 10 and lets sites that build the kit under pnpm 11 install
+# cleanly. Not lockfile-recorded, so it doesn't churn the kit lockfile.
+onlyBuiltDependencies:
+  - esbuild
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,75 @@
+{
+  "name": "@pretty-good/storefront-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "UNLICENSED",
+  "description": "Pretty Good storefront integration kit for winery websites: Storefront API clients, cart store, purchase-panel state machine, UTM attribution, and headless React components.",
+  "files": ["dist"],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "exports": {
+    "./storefront-api": {
+      "types": "./dist/storefront-api/index.d.ts",
+      "default": "./dist/storefront-api/index.js"
+    },
+    "./customer-auth": {
+      "types": "./dist/customer-auth/index.d.ts",
+      "default": "./dist/customer-auth/index.js"
+    },
+    "./cart": {
+      "types": "./dist/cart/index.d.ts",
+      "default": "./dist/cart/index.js"
+    },
+    "./pdp": {
+      "types": "./dist/pdp/index.d.ts",
+      "default": "./dist/pdp/index.js"
+    },
+    "./utm": {
+      "types": "./dist/utm/index.d.ts",
+      "default": "./dist/utm/index.js"
+    },
+    "./privacy-policy": {
+      "types": "./dist/privacy-policy/index.d.ts",
+      "default": "./dist/privacy-policy/index.js"
+    },
+    "./links": {
+      "types": "./dist/links/index.d.ts",
+      "default": "./dist/links/index.js"
+    },
+    "./money": {
+      "types": "./dist/money.d.ts",
+      "default": "./dist/money.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "build:watch": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "storybook": "storybook dev -p 6066 --no-open",
+    "build-storybook": "storybook build"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@storybook/react-vite": "^10.4.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "happy-dom": "^20.10.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "storybook": "^10.4.3",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.5",
+    "vitest": "^4.1.8"
+  }
+}

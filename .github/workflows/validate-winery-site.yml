@@ -1,0 +1,91 @@
+name: Reusable Winery Site Validate
+
+on:
+  workflow_call:
+    inputs:
+      winery-kit-ref:
+        description: winery-kit ref to check out for the linked file dependency.
+        required: false
+        type: string
+        default: main
+      sanity-dataset:
+        description: Sanity dataset used for schema validation and build.
+        required: false
+        type: string
+        default: production
+      preview-mode-default:
+        description: PREVIEW_MODE_DEFAULT value for the production-style build.
+        required: false
+        type: string
+        default: 'false'
+      run-typegen:
+        description: Whether to run pnpm typegen.
+        required: false
+        type: boolean
+        default: true
+      run-astro-check:
+        description: Whether to run npx astro check.
+        required: false
+        type: boolean
+        default: true
+      run-story-tests:
+        description: Whether to run pnpm test:stories.
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      WINERY_KIT_TOKEN:
+        required: true
+      SANITY_PROJECT_ID:
+        required: false
+      SANITY_PROJECT_API_TOKEN:
+        required: false
+
+jobs:
+  validate:
+    name: Build & Validate
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+
+    steps:
+      - name: Setup site and linked winery-kit
+        uses: pretty-bonafide/winery-kit/.github/actions/setup-winery-site@main
+        with:
+          winery-kit-token: ${{ secrets.WINERY_KIT_TOKEN }}
+          winery-kit-ref: ${{ inputs.winery-kit-ref }}
+
+      - name: Biome and Knip check
+        working-directory: site
+        run: pnpm check
+
+      - name: Validate Sanity schemas
+        if: ${{ inputs.run-typegen }}
+        working-directory: site
+        run: pnpm typegen
+        env:
+          SANITY_PROJECT_ID: ${{ secrets.SANITY_PROJECT_ID }}
+          SANITY_DATASET: ${{ inputs.sanity-dataset }}
+
+      - name: Astro check
+        if: ${{ inputs.run-astro-check }}
+        working-directory: site
+        run: npx astro check
+        env:
+          SANITY_PROJECT_ID: ${{ secrets.SANITY_PROJECT_ID }}
+
+      - name: Unit tests
+        working-directory: site
+        run: pnpm test
+
+      - name: Story smoke tests
+        if: ${{ inputs.run-story-tests }}
+        working-directory: site
+        run: pnpm test:stories
+
+      - name: Build site
+        working-directory: site
+        run: pnpm build
+        env:
+          SANITY_PROJECT_ID: ${{ secrets.SANITY_PROJECT_ID }}
+          SANITY_DATASET: ${{ inputs.sanity-dataset }}
+          SANITY_PROJECT_API_TOKEN: ${{ secrets.SANITY_PROJECT_API_TOKEN }}
+          PREVIEW_MODE_DEFAULT: ${{ inputs.preview-mode-default }}
