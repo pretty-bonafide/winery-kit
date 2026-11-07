@@ -14,11 +14,23 @@ export interface InitAnalyticsOptions {
   site: string;
   /** Default: `US`. */
   serverZone?: AmplitudeServerZone;
+  /** Where the SDK posts events: an absolute `https://` URL, or a same-origin
+   * path such as `/api/e` (a site endpoint that calls `forwardToAmplitude` from
+   * `/analytics-proxy`). Omit it for Amplitude's own endpoint. */
+  serverUrl?: string;
 }
 
 export type AnalyticsConfig =
   | { enabled: false }
-  | { enabled: true; apiKey: string; site: string; serverZone: AmplitudeServerZone };
+  | {
+      enabled: true;
+      apiKey: string;
+      site: string;
+      serverZone: AmplitudeServerZone;
+      /** Set only when the site chose an endpoint. A path is resolved against the
+       * page's origin by the shell. */
+      serverUrl?: string;
+    };
 
 /**
  * Analytics is optional config: an absent key is a deliberate "off". A key or
@@ -34,6 +46,13 @@ export function resolveAnalyticsConfig(options: InitAnalyticsOptions): Analytics
     throw new Error(`initAnalytics: unknown \`serverZone\` "${serverZone}" (expected US or EU).`);
   }
 
+  const serverUrl = options.serverUrl?.trim();
+  if (serverUrl !== undefined && !isServerUrl(serverUrl)) {
+    throw new Error(
+      `initAnalytics: \`serverUrl\` "${options.serverUrl}" must be an absolute https:// URL or a same-origin path starting with "/".`,
+    );
+  }
+
   if (options.apiKey === undefined) return { enabled: false };
 
   const apiKey = options.apiKey.trim();
@@ -43,7 +62,23 @@ export function resolveAnalyticsConfig(options: InitAnalyticsOptions): Analytics
     );
   }
 
-  return { enabled: true, apiKey, site, serverZone };
+  return serverUrl === undefined
+    ? { enabled: true, apiKey, site, serverZone }
+    : { enabled: true, apiKey, site, serverZone, serverUrl };
+}
+
+// Resolving against a placeholder origin tells a same-origin path ("/api/e")
+// from one the browser would send elsewhere ("//host", "/\host").
+const PLACEHOLDER_ORIGIN = 'https://origin.invalid';
+
+function isServerUrl(value: string): boolean {
+  try {
+    if (value.startsWith('/'))
+      return new URL(value, PLACEHOLDER_ORIGIN).origin === PLACEHOLDER_ORIGIN;
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 export type AnalyticsEventType =

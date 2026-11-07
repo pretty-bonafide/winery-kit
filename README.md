@@ -158,6 +158,51 @@ mistake. The SDK starts cookie-light: autocapture and remote config off,
 identity in localStorage, no IP address on events. A failed SDK load warns once
 and drops events; analytics never breaks commerce.
 
+### First-party endpoint (`serverUrl` + `/analytics-proxy`)
+
+Ad and DNS blockers filter `api2.amplitude.com`, so a blocked visitor's events
+never arrive. To avoid that, the SDK posts to the site's own origin and a site
+endpoint forwards the upload to Amplitude.
+
+`initAnalytics` takes an optional `serverUrl`: a same-origin path (`/api/e`),
+resolved against the page's origin, or an absolute `https://` URL. Anything else
+throws. Leave it unset to post to Amplitude directly.
+
+`@pretty-good/storefront-kit/analytics-proxy` is server-only and never loads the
+SDK. It exports `forwardToAmplitude(request, { serverZone?, fetch? })`, which
+posts the body to Amplitude's HTTP V2 API (`api2.amplitude.com`, or
+`api.eu.amplitude.com` for `serverZone: 'EU'`) and returns Amplitude's status
+and body. The upstream is fixed, so the endpoint can't be used as an open proxy.
+Only the JSON body is sent upstream: no cookies, client headers or IP. It answers
+405 (with `Allow: POST`) to other methods, 415 to a body that isn't uncompressed
+JSON, 413 to one over Amplitude's 1 MB limit, 400 to invalid JSON, and 502 when
+Amplitude can't be reached.
+
+On Astro with the Cloudflare adapter, add an on-demand endpoint:
+
+```ts
+// src/pages/api/e.ts
+import { forwardToAmplitude } from '@pretty-good/storefront-kit/analytics-proxy';
+import type { APIRoute } from 'astro';
+
+export const prerender = false;
+export const POST: APIRoute = ({ request }) => forwardToAmplitude(request);
+export const ALL: APIRoute = ({ request }) => forwardToAmplitude(request); // 405
+```
+
+Then pass `serverUrl: '/api/e'` to `initAnalytics`. Use a neutral path: blocker
+lists match words like `analytics`, `amplitude`, `track` or `collect`. Use the
+same `serverZone` in both calls.
+
+Location comes from Cloudflare, at city level. Through the endpoint, the upload
+request's IP is the Worker's, not the visitor's, so the forwarder adds the
+visitor's `country` (English name), `region` and `city` from `request.cf` to each
+event that doesn't already have them, and strips any `ip` from events (the SDK
+sends none, because `trackingOptions.ipAddress` is false). Coordinates, postal
+code and DMA aren't sent. No visitor IP is sent to Amplitude or stored. Amplitude
+doesn't document whether these fields win over its own lookup of the request IP,
+so check a staging event's location before relying on it.
+
 ## Standard cross-site conventions
 
 - Cart events: `pg:cart-refresh`, `pg:cart-open` (window CustomEvents any

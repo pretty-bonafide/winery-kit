@@ -13,10 +13,14 @@ type EnabledAnalyticsConfig = Extract<AnalyticsConfig, { enabled: true }>;
  * builders own the schema, and attribution comes from the kit's stored UTMs),
  * no remote config that could switch autocapture back on from the dashboard,
  * identity in localStorage rather than cookies, and no IP address on events.
+ * A `serverUrl` path is resolved against this page's origin.
  */
 function amplitudeOptions(config: EnabledAnalyticsConfig): Types.BrowserOptions {
   return {
     serverZone: config.serverZone,
+    ...(config.serverUrl !== undefined && {
+      serverUrl: new URL(config.serverUrl, window.location.origin).href,
+    }),
     autocapture: false,
     remoteConfig: { fetchRemoteConfig: false },
     identityStorage: 'localStorage',

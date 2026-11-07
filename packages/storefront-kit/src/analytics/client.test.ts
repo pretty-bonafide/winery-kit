@@ -70,6 +70,41 @@ describe('initAnalytics', () => {
     });
   });
 
+  it('passes a same-origin serverUrl path resolved against the page origin', async () => {
+    const { initAnalytics } = await loadAnalytics();
+
+    await initAnalytics({ apiKey: 'key', site: 'paco', serverUrl: '/api/e' });
+
+    expect(sdk.client.init).toHaveBeenCalledWith(
+      'key',
+      expect.objectContaining({ serverUrl: `${window.location.origin}/api/e` }),
+    );
+  });
+
+  it('passes an absolute serverUrl unchanged and sends none when unset', async () => {
+    let analytics = await loadAnalytics();
+    await analytics.initAnalytics({
+      apiKey: 'key',
+      site: 'paco',
+      serverUrl: 'https://e.example.com/2/httpapi',
+    });
+    expect(sdk.client.init.mock.calls[0]?.[1]).toMatchObject({
+      serverUrl: 'https://e.example.com/2/httpapi',
+    });
+
+    analytics = await loadAnalytics();
+    await analytics.initAnalytics({ apiKey: 'key', site: 'paco' });
+    expect(sdk.client.init.mock.calls[1]?.[1]).not.toHaveProperty('serverUrl');
+  });
+
+  it('throws synchronously on an invalid serverUrl', async () => {
+    const { initAnalytics } = await loadAnalytics();
+    expect(() =>
+      initAnalytics({ apiKey: 'key', site: 'paco', serverUrl: '//evil.example' }),
+    ).toThrow(/serverUrl/);
+    expect(sdk.createInstance).not.toHaveBeenCalled();
+  });
+
   it('queues events tracked before the SDK is ready and flushes them in order', async () => {
     const ready = deferred();
     sdk.client.init.mockReturnValue({ promise: ready.promise });

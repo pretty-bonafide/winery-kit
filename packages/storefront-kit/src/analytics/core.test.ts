@@ -46,6 +46,37 @@ describe('resolveAnalyticsConfig', () => {
   });
 });
 
+describe('resolveAnalyticsConfig serverUrl', () => {
+  it('leaves serverUrl off when unset (Amplitude default endpoint)', () => {
+    expect(resolveAnalyticsConfig({ apiKey: 'key', site: 'paco' })).not.toHaveProperty('serverUrl');
+  });
+
+  it('keeps a same-origin path or an absolute https URL, trimmed', () => {
+    expect(
+      resolveAnalyticsConfig({ apiKey: 'key', site: 'paco', serverUrl: ' /api/e ' }),
+    ).toMatchObject({ serverUrl: '/api/e' });
+    expect(
+      resolveAnalyticsConfig({ apiKey: 'key', site: 'paco', serverUrl: 'https://e.example.com/2' }),
+    ).toMatchObject({ serverUrl: 'https://e.example.com/2' });
+  });
+
+  it.each([
+    '',
+    '  ',
+    'api/e',
+    '//evil.example/e',
+    '/\\evil.example/e',
+    'http://e.example.com',
+    'javascript:alert(1)',
+    'https://',
+  ])('throws on %j, with or without a key', (serverUrl) => {
+    expect(() => resolveAnalyticsConfig({ apiKey: 'key', site: 'paco', serverUrl })).toThrow(
+      /serverUrl/,
+    );
+    expect(() => resolveAnalyticsConfig({ site: 'paco', serverUrl })).toThrow(/serverUrl/);
+  });
+});
+
 describe('buildAnalyticsEvent', () => {
   it('reports the site and the stored utm params unchanged, prefixed', () => {
     expect(

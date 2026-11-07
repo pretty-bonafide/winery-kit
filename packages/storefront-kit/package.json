@@ -10,6 +10,10 @@
       "types": "./dist/analytics/index.d.ts",
       "default": "./dist/analytics/index.js"
     },
+    "./analytics-proxy": {
+      "types": "./dist/analytics-proxy/index.d.ts",
+      "default": "./dist/analytics-proxy/index.js"
+    },
     "./storefront-api": {
       "types": "./dist/storefront-api/index.d.ts",
       "default": "./dist/storefront-api/index.js"
