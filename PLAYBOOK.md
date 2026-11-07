@@ -447,5 +447,5 @@ to its checkout.
   (about 3,300 lines deleted per site in past migrations).
 - **Known gaps** (candidates for the next phase): publishable-key creation is a
   manual admin step; the presentational PDP/cart components are still per-site
-  (extract a themeable component package once the pattern is obvious); the kit
-  should move from `file:` to a published registry package once its API settles.
+  (extract a themeable component package once the pattern is obvious); sites
+  should move from `file:` to versioned releases ([docs/releasing.md](docs/releasing.md)).
