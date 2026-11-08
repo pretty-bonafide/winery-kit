@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CartSnapshot } from '../cart/cart-types.js';
 import { useAddToCart } from './use-add-to-cart.js';
 import { useCartSidebar } from './use-cart-sidebar.js';
+import { usePurchaseAction } from './use-purchase-action.js';
 import { usePurchasePanel } from './use-purchase-panel.js';
 
 // The hooks emit through the tracker; the cart store is a fixed snapshot so
@@ -90,7 +91,7 @@ class FakeIntersectionObserver {
 
 vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
 
-/** Attaches the panel to an element, then reports it on screen or not. */
+/** Attaches the panel (or card) to an element, then reports it on screen or not. */
 function scrollPanel(panel: { viewRef: (node: Element | null) => void }, onScreen: boolean) {
   act(() => panel.viewRef(document.createElement('section')));
   act(() => {
@@ -100,14 +101,15 @@ function scrollPanel(panel: { viewRef: (node: Element | null) => void }, onScree
 
 let root: Root | null = null;
 
-function renderHook<T>(hook: () => T): { current: T } {
-  const result = {} as { current: T };
+function renderHook<T>(hook: () => T): { current: T; rerender: () => void } {
+  const result = {} as { current: T; rerender: () => void };
   function Probe() {
     result.current = hook();
     return null;
   }
   root = createRoot(document.createElement('div'));
-  act(() => root?.render(createElement(Probe)));
+  result.rerender = () => act(() => root?.render(createElement(Probe)));
+  result.rerender();
   return result;
 }
 
@@ -198,6 +200,7 @@ describe('usePurchasePanel', () => {
 
     expect(mocks.track).toHaveBeenCalledExactlyOnceWith({
       type: 'product_viewed',
+      surface: 'page',
       productSlug: 'cab-2022',
       productName: 'Cabernet 2022',
       priceCents: 4500,
@@ -227,6 +230,7 @@ describe('usePurchasePanel', () => {
 
     expect(mocks.track).toHaveBeenCalledExactlyOnceWith({
       type: 'product_viewed',
+      surface: 'page',
       productSlug: 'cabernet-sauvignon-2022',
       productName: 'Cabernet 2022',
       priceCents: 5200,
@@ -261,5 +265,59 @@ describe('usePurchasePanel', () => {
     scrollPanel(hook.current, true);
     expect(mocks.track).toHaveBeenCalledTimes(1);
     expect(observers[0]?.options?.threshold).toBe(0.5);
+  });
+});
+
+describe('usePurchaseAction', () => {
+  const CARD_VIEW = {
+    type: 'product_viewed',
+    surface: 'card',
+    productSlug: 'cab-2022',
+    productName: 'Cabernet 2022',
+    priceCents: 4500,
+  };
+
+  it('emits one product_viewed with surface card once the card scrolls into view', () => {
+    const hook = renderHook(() => usePurchaseAction({ input: INPUT }));
+    expect(mocks.track).not.toHaveBeenCalled();
+
+    scrollPanel(hook.current, true);
+
+    expect(mocks.track).toHaveBeenCalledExactlyOnceWith(CARD_VIEW);
+    expect(observers[0]?.options?.threshold).toBe(0.5);
+  });
+
+  it('waits for the input to resolve before reporting a card seen earlier', () => {
+    let input: typeof INPUT | null = null;
+    const hook = renderHook(() => usePurchaseAction({ input }));
+    scrollPanel(hook.current, true);
+    expect(mocks.track).not.toHaveBeenCalled();
+
+    input = INPUT;
+    hook.rerender();
+
+    expect(mocks.track).toHaveBeenCalledExactlyOnceWith(CARD_VIEW);
+  });
+
+  it('emits nothing for a card that never comes on screen', () => {
+    const hook = renderHook(() => usePurchaseAction({ input: INPUT }));
+    scrollPanel(hook.current, false);
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it('emits nothing when the card never attaches viewRef', () => {
+    renderHook(() => usePurchaseAction({ input: INPUT }));
+    expect(observers).toHaveLength(0);
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it('reports a view once per mount, across scrolls and new inputs', () => {
+    let input = INPUT;
+    const hook = renderHook(() => usePurchaseAction({ input }));
+    scrollPanel(hook.current, true);
+    scrollPanel(hook.current, true);
+    input = { ...INPUT, display: { title: 'Cabernet 2022', unitPrice: 5200 } };
+    hook.rerender();
+    expect(mocks.track).toHaveBeenCalledTimes(1);
   });
 });

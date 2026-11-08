@@ -124,11 +124,12 @@ describe('buildAnalyticsEvent', () => {
   });
 
   describe('product_viewed', () => {
-    it('builds slug, name and price in cents', () => {
+    it('builds the surface, slug, name and price in cents', () => {
       expect(
         buildAnalyticsEvent(
           {
             type: 'product_viewed',
+            surface: 'page',
             productSlug: 'cab-2022',
             productName: ' Cabernet 2022 ',
             priceCents: 4500,
@@ -139,6 +140,7 @@ describe('buildAnalyticsEvent', () => {
         eventType: 'product_viewed',
         eventProperties: {
           site: 'paco',
+          surface: 'page',
           product_slug: 'cab-2022',
           product_name: 'Cabernet 2022',
           price_cents: 4500,
@@ -146,19 +148,51 @@ describe('buildAnalyticsEvent', () => {
       });
     });
 
+    it('reports a card view as surface card', () => {
+      expect(
+        buildAnalyticsEvent(
+          { type: 'product_viewed', surface: 'card', productSlug: 'cab-2022' },
+          CONTEXT,
+        )?.eventProperties,
+      ).toEqual({ site: 'paco', surface: 'card', product_slug: 'cab-2022' });
+    });
+
     it('omits a blank name and a price that is not whole non-negative cents', () => {
       for (const priceCents of [45.5, -1, Number.NaN]) {
         expect(
           buildAnalyticsEvent(
-            { type: 'product_viewed', productSlug: 'cab-2022', productName: ' ', priceCents },
+            {
+              type: 'product_viewed',
+              surface: 'page',
+              productSlug: 'cab-2022',
+              productName: ' ',
+              priceCents,
+            },
             CONTEXT,
           )?.eventProperties,
-        ).toEqual({ site: 'paco', product_slug: 'cab-2022' });
+        ).toEqual({ site: 'paco', surface: 'page', product_slug: 'cab-2022' });
       }
     });
 
     it('rejects a missing slug', () => {
-      expect(buildAnalyticsEvent({ type: 'product_viewed', productSlug: ' ' }, CONTEXT)).toBeNull();
+      expect(
+        buildAnalyticsEvent({ type: 'product_viewed', surface: 'page', productSlug: ' ' }, CONTEXT),
+      ).toBeNull();
+    });
+
+    it('rejects an unknown surface', () => {
+      for (const surface of ['', 'pdp', 'Card']) {
+        expect(
+          buildAnalyticsEvent(
+            {
+              type: 'product_viewed',
+              surface: surface as unknown as 'page',
+              productSlug: 'cab-2022',
+            },
+            CONTEXT,
+          ),
+        ).toBeNull();
+      }
     });
   });
 
