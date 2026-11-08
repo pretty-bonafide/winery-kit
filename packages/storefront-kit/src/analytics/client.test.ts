@@ -112,7 +112,7 @@ describe('initAnalytics', () => {
 
     const initialized = initAnalytics({ apiKey: 'key', site: 'paco' });
     track({ type: 'page_viewed', path: '/wines' });
-    track({ type: 'product_viewed', productSlug: 'cab-2022' });
+    track({ type: 'product_viewed', surface: 'page', productSlug: 'cab-2022' });
     await flush();
     expect(sdk.client.track).not.toHaveBeenCalled();
 
@@ -121,7 +121,7 @@ describe('initAnalytics', () => {
 
     expect(sdk.client.track.mock.calls).toEqual([
       ['page_viewed', { site: 'paco', path: '/wines' }],
-      ['product_viewed', { site: 'paco', product_slug: 'cab-2022' }],
+      ['product_viewed', { site: 'paco', surface: 'page', product_slug: 'cab-2022' }],
     ]);
 
     track({ type: 'checkout_started', cartItemCount: 1, cartSubtotalCents: 4500 });

@@ -99,8 +99,13 @@ export interface PageViewedInput {
   path: string;
 }
 
+/** Where the visitor saw the wine: its own page (the PDP purchase panel) or a
+ * card in a list (shop, collection). */
+export type ProductViewSurface = 'page' | 'card';
+
 export interface ProductViewedInput {
   type: 'product_viewed';
+  surface: ProductViewSurface;
   productSlug: string;
   productName?: string;
   priceCents?: number;
@@ -134,8 +139,8 @@ export interface AnalyticsContext {
 
 /**
  * Builds the Amplitude event for one input, or null when the input can't
- * describe a real event (no product slug, a non-positive quantity, a path that
- * isn't one). Optional fields that don't validate (a fractional price, a blank
+ * describe a real event (no product slug, an unknown view surface, a
+ * non-positive quantity, a path that isn't one). Optional fields that don't validate (a fractional price, a blank
  * name) are left off rather than sinking the event. Money stays in cents.
  */
 export function buildAnalyticsEvent(
@@ -157,8 +162,11 @@ function buildEventProperties(input: AnalyticsEventInput): AnalyticsEventPropert
       const path = normalizePath(input.path);
       return path ? { path } : null;
     }
-    case 'product_viewed':
-      return productProperties(input);
+    case 'product_viewed': {
+      const product = productProperties(input);
+      if (!product || !isProductViewSurface(input.surface)) return null;
+      return { ...product, surface: input.surface };
+    }
     case 'product_added_to_cart': {
       const product = productProperties(input);
       if (!product || !isPositiveInteger(input.quantity)) return null;
@@ -205,6 +213,10 @@ function utmProperties(utm: UtmParams | null): AnalyticsEventProperties {
     if (value) properties[`utm_${key}`] = value;
   }
   return properties;
+}
+
+function isProductViewSurface(value: string): value is ProductViewSurface {
+  return value === 'page' || value === 'card';
 }
 
 function isCount(value: number): boolean {

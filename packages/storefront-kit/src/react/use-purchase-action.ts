@@ -1,9 +1,11 @@
 import type { ButtonHTMLAttributes, MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
 import type { AddToCartInput, CartErrorPayload } from '../cart/cart-types.js';
+import { cardProductView } from './product-view.js';
 import { useAddToCart } from './use-add-to-cart.js';
 import { useCartLineQuantity } from './use-cart-line-quantity.js';
 import { useVariationCommerce } from './use-customer-commerce.js';
+import { useProductView } from './use-product-view.js';
 
 export interface PurchaseActionLabels {
   add: string;
@@ -97,6 +99,10 @@ export interface PurchaseActionResult {
   getButtonProps: (
     props?: ButtonHTMLAttributes<HTMLButtonElement>,
   ) => ButtonHTMLAttributes<HTMLButtonElement>;
+  /** Attach to the element that shows this wine (the card). `product_viewed`
+   * (surface `card`) fires once half of it has been on screen and `input` is
+   * set; a card with no attached element never reports a view. */
+  viewRef: (node: Element | null) => void;
 }
 
 const DEFAULT_LABELS: PurchaseActionLabels = {
@@ -131,6 +137,7 @@ export function usePurchaseAction(options: UsePurchaseActionOptions): PurchaseAc
     isHydrated && resolvesCommerce ? variationId : undefined,
   );
   const quantityInCart = useCartLineQuantity(identity ?? input ?? {});
+  const viewRef = useProductView(cardProductView(input));
   const expectsCommerceCheck = Boolean(
     isHydrated && resolvesCommerce && variationId && commerce.variationIds.includes(variationId),
   );
@@ -208,6 +215,7 @@ export function usePurchaseAction(options: UsePurchaseActionOptions): PurchaseAc
     status: actionState,
     submit,
     getButtonProps,
+    viewRef,
   };
 }
 

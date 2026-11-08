@@ -123,17 +123,21 @@ winery). Purchases and orders are out of scope.
 | Event | Fired by | Properties (besides `site` + stored `utm_*`) |
 |-------|----------|-----------------------------------------------|
 | `page_viewed` | the site, via `trackPageView()` | `path` (no query string) |
-| `product_viewed` | `usePurchasePanel`, once per mount, when its product has resolved and half of the `viewRef` element has been on screen | `product_slug`, `product_name`, `price_cents` |
+| `product_viewed` | `usePurchasePanel` (PDP) or `usePurchaseAction` (product card), once per mount, when its product has resolved and half of the `viewRef` element has been on screen | `surface` (`page` from the panel, `card` from a card), `product_slug`, `product_name`, `price_cents` |
 | `product_added_to_cart` | `useAddToCart`, after a successful add | `product_slug`, `product_name`, `price_cents`, `quantity` |
 | `checkout_started` | `useCartSidebar().checkout` (the `CartSidebar` button) | `cart_item_count`, `cart_subtotal_cents` |
 
 `utm_*` are the visitor's stored acquisition from `captureUtmFromLocation`,
 reported unchanged (RULES.md §3). Money is always integer cents.
 
-`product_viewed` counts wines the visitor saw, not panels that mounted: a
-one-page site mounts every wine's panel on load. Attach the hook's `viewRef` to
-the element that shows the wine (winery-ui's `PurchasePanelRoot` does this for
-you). A panel with nothing attached reports no views.
+`product_viewed` counts wines the visitor saw, not panels or cards that
+mounted: a one-page site mounts every wine's panel on load, and a shop page
+mounts every card. Attach the hook's `viewRef` to the element that shows the
+wine: the panel (winery-ui's `PurchasePanelRoot` does this for you) or the
+whole card, not just its button. A card's view waits for its `input`; a panel's
+waits for the product read. Anything with nothing attached reports no views,
+so a shop card that never attaches `viewRef` drops out of the funnel at
+`product_viewed` even when it adds to cart.
 
 1. Install the optional peer in the site: `pnpm add @amplitude/analytics-browser`.
    Sites that never import `/analytics` don't need it and ship none of it.
