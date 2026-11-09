@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_UTM_STORAGE_KEY } from '../utm/storage.js';
 
 const sdk = vi.hoisted(() => {
-  const client = { init: vi.fn(), track: vi.fn() };
+  const client = { init: vi.fn(), track: vi.fn(), flush: vi.fn() };
   return { client, createInstance: vi.fn(() => client) };
 });
 
@@ -30,6 +30,8 @@ beforeEach(() => {
   sdk.createInstance.mockClear();
   sdk.client.init.mockReset();
   sdk.client.track.mockReset();
+  sdk.client.flush.mockReset();
+  sdk.client.flush.mockReturnValue({ promise: Promise.resolve() });
   sdk.client.init.mockReturnValue({ promise: Promise.resolve() });
   window.localStorage.clear();
 });
@@ -174,18 +176,19 @@ describe('initAnalytics', () => {
 
     expect(sdk.client.track).toHaveBeenCalledWith('product_added_to_cart', {
       site: 'paco',
-      referrer_domain: 'www.google.co.uk',
+      referrer_domain: 'google.co.uk',
       channel: 'search',
       product_slug: 'cab-2022',
       quantity: 1,
     });
   });
 
-  it('reports the referrer captured on landing (hostname only) on later events', async () => {
+  it('reports the landing captured on landing (referrer hostname, click ID, path) on later events', async () => {
     Object.defineProperty(document, 'referrer', {
       value: 'https://www.instagram.com/p/abc?igshid=1',
       configurable: true,
     });
+    window.history.replaceState(null, '', '/wines/cab-2022?fbclid=IwAR123');
     try {
       const { initAnalytics, track } = await loadAnalytics();
       const { captureUtmFromLocation } = await import('../utm/storage.js');
@@ -196,12 +199,18 @@ describe('initAnalytics', () => {
 
       expect(sdk.client.track).toHaveBeenCalledWith('page_viewed', {
         site: 'paco',
-        referrer_domain: 'www.instagram.com',
+        referrer_domain: 'instagram.com',
+        click_id_type: 'meta',
+        landing_path: '/wines/cab-2022',
         channel: 'social',
         path: '/',
       });
+      // Only the click ID's network is stored, never its value.
+      expect(window.localStorage.getItem(DEFAULT_UTM_STORAGE_KEY)).toContain('"clickId":"meta"');
+      expect(window.localStorage.getItem(DEFAULT_UTM_STORAGE_KEY)).not.toContain('IwAR123');
     } finally {
       Reflect.deleteProperty(document, 'referrer');
+      window.history.replaceState(null, '', '/');
     }
   });
 
@@ -256,6 +265,61 @@ describe('initAnalytics', () => {
       expect.stringContaining('product_added_to_cart'),
       expect.anything(),
     );
+  });
+});
+
+describe('page-exit events', () => {
+  it('flushes the batch right after store_link_clicked and checkout_started, not other events', async () => {
+    const { initAnalytics, track } = await loadAnalytics();
+    await initAnalytics({ apiKey: 'key', site: 'paco' });
+
+    track({ type: 'page_viewed', path: '/' });
+    track({ type: 'product_added_to_cart', productSlug: 'cab-2022', quantity: 1 });
+    expect(sdk.client.flush).not.toHaveBeenCalled();
+
+    track({ type: 'store_link_clicked', destination: 'club_join', linkPath: '/clubs', path: '/' });
+    expect(sdk.client.flush).toHaveBeenCalledTimes(1);
+    expect(sdk.client.track).toHaveBeenLastCalledWith('store_link_clicked', {
+      site: 'paco',
+      channel: 'direct',
+      destination: 'club_join',
+      link_path: '/clubs',
+      path: '/',
+    });
+    // The flush follows the event it is for.
+    expect(sdk.client.flush.mock.invocationCallOrder[0]).toBeGreaterThan(
+      sdk.client.track.mock.invocationCallOrder[2] ?? Number.POSITIVE_INFINITY,
+    );
+
+    track({ type: 'checkout_started', cartItemCount: 1, cartSubtotalCents: 4500 });
+    expect(sdk.client.flush).toHaveBeenCalledTimes(2);
+  });
+
+  it('flushes when a queued page-exit event is delivered after the SDK loads', async () => {
+    const ready = deferred();
+    sdk.client.init.mockReturnValue({ promise: ready.promise });
+    const { initAnalytics, track } = await loadAnalytics();
+
+    const initialized = initAnalytics({ apiKey: 'key', site: 'paco' });
+    track({ type: 'store_link_clicked', destination: 'shop', linkPath: '/', path: '/' });
+    ready.resolve();
+    await initialized;
+
+    expect(sdk.client.track).toHaveBeenCalledTimes(1);
+    expect(sdk.client.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('never throws when the flush fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sdk.client.flush.mockReturnValue({ promise: Promise.reject(new Error('offline')) });
+    const { initAnalytics, track } = await loadAnalytics();
+    await initAnalytics({ apiKey: 'key', site: 'paco' });
+
+    expect(() =>
+      track({ type: 'checkout_started', cartItemCount: 1, cartSubtotalCents: 4500 }),
+    ).not.toThrow();
+    await flush();
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

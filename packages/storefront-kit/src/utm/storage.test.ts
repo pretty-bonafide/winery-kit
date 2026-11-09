@@ -161,15 +161,17 @@ async function loadStorage() {
 function stubLanding({
   search = '',
   hostname = 'www.pacowinery.com',
+  pathname,
   referrer = '',
   localStorage = createLocalStorageStub(),
 }: {
   search?: string;
   hostname?: string;
+  pathname?: string;
   referrer?: string;
   localStorage?: ReturnType<typeof createLocalStorageStub>;
 }) {
-  const location = { search, hostname };
+  const location = { search, hostname, pathname };
   vi.stubGlobal('window', { location, localStorage });
   vi.stubGlobal('document', { referrer });
   return { localStorage, location };
@@ -191,7 +193,7 @@ describe('captureUtmFromLocation referrer capture', () => {
 
     expect(storedRecord(localStorage)).toEqual({
       params: {},
-      referrerDomain: 'www.google.com',
+      referrerDomain: 'google.com',
       capturedAt: NOW.toISOString(),
     });
   });
@@ -224,7 +226,7 @@ describe('captureUtmFromLocation referrer capture', () => {
 
     expect(storedRecord(localStorage)).toEqual({
       params: {},
-      referrerDomain: 'www.winespectator.com',
+      referrerDomain: 'winespectator.com',
       capturedAt: NOW.toISOString(),
     });
   });
@@ -369,5 +371,91 @@ describe('readStoredUtm with a referrer-only record', () => {
 
     expect(readStoredUtm(now)).toBeNull();
     expect(localStorage.getItem(UTM_STORAGE_KEY)).not.toBeNull();
+  });
+});
+
+describe('captureUtmFromLocation click IDs and landing path', () => {
+  it('stores the click ID type (never its value) and the landing path as a new touch', async () => {
+    const { captureUtmFromLocation } = await loadStorage();
+    const { localStorage } = stubLanding({
+      search: '?gclid=Cj0KCQ-secret',
+      pathname: '/wines/cab-2022',
+      referrer: 'https://www.google.com/',
+    });
+    localStorage.setItem(
+      UTM_STORAGE_KEY,
+      JSON.stringify({ params: { source: 'email' }, capturedAt: NOW.toISOString() }),
+    );
+
+    captureUtmFromLocation(now);
+
+    expect(storedRecord(localStorage)).toEqual({
+      params: {},
+      referrerDomain: 'google.com',
+      clickId: 'google',
+      landingPath: '/wines/cab-2022',
+      capturedAt: NOW.toISOString(),
+    });
+    expect(localStorage.getItem(UTM_STORAGE_KEY)).not.toContain('Cj0KCQ');
+  });
+
+  it('stores a direct landing’s path when nothing is stored', async () => {
+    const { captureUtmFromLocation, readStoredAcquisition } = await loadStorage();
+    const { localStorage } = stubLanding({ pathname: '/visit' });
+
+    captureUtmFromLocation(now);
+
+    expect(storedRecord(localStorage)).toEqual({
+      params: {},
+      landingPath: '/visit',
+      capturedAt: NOW.toISOString(),
+    });
+    expect(readStoredAcquisition(now)).toEqual({
+      utm: null,
+      referrerDomain: null,
+      landingPath: '/visit',
+    });
+    expect(readStoredUtm(now)).toBeNull();
+  });
+
+  it('keeps the first landing path through later direct pages (Client Router)', async () => {
+    const { captureUtmFromLocation } = await loadStorage();
+    const { localStorage, location } = stubLanding({
+      search: '?utm_source=ig&utm_medium=social',
+      pathname: '/wines',
+    });
+    captureUtmFromLocation(now);
+
+    location.search = '';
+    location.pathname = '/shop';
+    captureUtmFromLocation(() => new Date(NOW.getTime() + 60_000));
+
+    expect(storedRecord(localStorage)).toEqual({
+      params: { source: 'ig', medium: 'social' },
+      landingPath: '/wines',
+      capturedAt: NOW.toISOString(),
+    });
+  });
+
+  it('never replaces an existing record with a direct landing', async () => {
+    const { captureUtmFromLocation } = await loadStorage();
+    const record = { params: {}, referrerDomain: 'google.com', capturedAt: NOW.toISOString() };
+    const { localStorage } = stubLanding({ pathname: '/shop' });
+    localStorage.setItem(UTM_STORAGE_KEY, JSON.stringify(record));
+
+    captureUtmFromLocation(now);
+
+    expect(storedRecord(localStorage)).toEqual(record);
+  });
+
+  it('normalizes a 0.5.0 record with a www. referrer when it is read', async () => {
+    const { readStoredAcquisition } = await loadStorage();
+    const { localStorage } = stubLanding({});
+    localStorage.setItem(
+      UTM_STORAGE_KEY,
+      JSON.stringify({ params: {}, referrerDomain: 'www.google.com', capturedAt: NOW }),
+    );
+
+    expect(readStoredAcquisition(now)).toEqual({ utm: null, referrerDomain: 'google.com' });
   });
 });

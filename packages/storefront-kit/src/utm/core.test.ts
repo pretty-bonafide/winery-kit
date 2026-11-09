@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendUtmToUrl,
+  extractClickIdType,
   extractUtmParams,
   isExpired,
   mergeAcquisition,
   mergeUtm,
+  normalizeLandingPath,
   parseStoredUtm,
   type StoredUtm,
   toAcquisition,
@@ -86,8 +88,16 @@ describe('parseStoredUtm with a referrer', () => {
   });
 
   it('reads a referrer-only record (empty params) as valid', () => {
-    const record = { params: {}, referrerDomain: 'www.google.com', capturedAt: NOW.toISOString() };
+    const record = { params: {}, referrerDomain: 'google.com', capturedAt: NOW.toISOString() };
     expect(parseStoredUtm(JSON.stringify(record))).toEqual(record);
+  });
+
+  it('normalizes a 0.5.0 record’s www. referrer on read', () => {
+    const record = { params: {}, referrerDomain: 'www.google.com', capturedAt: NOW.toISOString() };
+    expect(parseStoredUtm(JSON.stringify(record))).toEqual({
+      ...record,
+      referrerDomain: 'google.com',
+    });
   });
 
   it('reads a record with both UTMs and a referrer', () => {
@@ -297,5 +307,182 @@ describe('appendUtmToUrl', () => {
     expect(appendUtmToUrl('https://store.example.com/checkout', null)).toBe(
       'https://store.example.com/checkout',
     );
+  });
+});
+
+describe('extractClickIdType', () => {
+  it.each([
+    ['?gclid=abc', 'google'],
+    ['?gbraid=abc', 'google'],
+    ['?wbraid=abc', 'google'],
+    ['?msclkid=abc', 'microsoft'],
+    ['?fbclid=IwAR1', 'meta'],
+    ['?ttclid=abc', 'tiktok'],
+    ['utm_source=x&gclid=abc', 'google'],
+  ])('%s → %s', (search, type) => {
+    expect(extractClickIdType(search)).toBe(type);
+  });
+
+  it('takes the first network in precedence order when several are present', () => {
+    expect(extractClickIdType('?fbclid=1&gclid=2')).toBe('google');
+    expect(extractClickIdType('?ttclid=1&msclkid=2')).toBe('microsoft');
+  });
+
+  it('is null without a click ID, or with a blank one', () => {
+    expect(extractClickIdType('')).toBeNull();
+    expect(extractClickIdType('?utm_source=ig&GCLID=abc&dclid=1')).toBeNull();
+    expect(extractClickIdType('?gclid=&fbclid=%20')).toBeNull();
+  });
+});
+
+describe('normalizeLandingPath', () => {
+  it('keeps the pathname only', () => {
+    expect(normalizeLandingPath('/wines/cab-2022')).toBe('/wines/cab-2022');
+    expect(normalizeLandingPath('/wines?utm_source=ig#top')).toBe('/wines');
+    expect(normalizeLandingPath(' / ')).toBe('/');
+  });
+
+  it('is null for something that is not an absolute path', () => {
+    for (const raw of [undefined, null, '', 'wines', 'https://example.com/wines']) {
+      expect(normalizeLandingPath(raw)).toBeNull();
+    }
+  });
+});
+
+describe('parseStoredUtm with a click ID and landing path', () => {
+  it('reads a record with every field', () => {
+    const record: StoredUtm = {
+      params: { source: 'google', medium: 'cpc' },
+      referrerDomain: 'google.com',
+      clickId: 'google',
+      landingPath: '/wines',
+      capturedAt: NOW.toISOString(),
+    };
+    expect(parseStoredUtm(JSON.stringify(record))).toEqual(record);
+  });
+
+  it('reads a click-ID-only record and a direct (landing-path-only) record as valid', () => {
+    const clickOnly = { params: {}, clickId: 'meta', capturedAt: NOW.toISOString() };
+    expect(parseStoredUtm(JSON.stringify(clickOnly))).toEqual(clickOnly);
+
+    const direct = { params: {}, landingPath: '/', capturedAt: NOW.toISOString() };
+    expect(parseStoredUtm(JSON.stringify(direct))).toEqual(direct);
+  });
+
+  it('drops an unknown click ID type or invalid landing path, and the record if nothing survives', () => {
+    expect(
+      parseStoredUtm(
+        JSON.stringify({
+          params: { source: 'ig' },
+          clickId: 'yahoo',
+          landingPath: 'wines',
+          capturedAt: NOW,
+        }),
+      ),
+    ).toEqual({ params: { source: 'ig' }, capturedAt: NOW.toISOString() });
+    expect(
+      parseStoredUtm(JSON.stringify({ params: {}, clickId: 'gclid', capturedAt: NOW })),
+    ).toBeNull();
+    expect(
+      parseStoredUtm(JSON.stringify({ params: {}, landingPath: 42, capturedAt: NOW })),
+    ).toBeNull();
+  });
+});
+
+describe('toAcquisition with a click ID and landing path', () => {
+  it('maps them when present and leaves them off when absent', () => {
+    expect(
+      toAcquisition({
+        params: {},
+        clickId: 'google',
+        landingPath: '/wines',
+        capturedAt: NOW.toISOString(),
+      }),
+    ).toEqual({ utm: null, referrerDomain: null, clickId: 'google', landingPath: '/wines' });
+
+    const acquisition = toAcquisition(stored({ source: 'ig' }));
+    expect(acquisition).not.toHaveProperty('clickId');
+    expect(acquisition).not.toHaveProperty('landingPath');
+  });
+});
+
+describe('mergeAcquisition with a click ID and landing path', () => {
+  const earlier = new Date(NOW.getTime() - 1000).toISOString();
+
+  it('starts a new touch from a click ID alone, keeping the landing path', () => {
+    const existing = stored({ source: 'email' }, earlier);
+    expect(
+      mergeAcquisition(
+        existing,
+        { utm: null, referrerDomain: null, clickId: 'meta', landingPath: '/wines' },
+        NOW,
+      ),
+    ).toEqual({
+      params: {},
+      clickId: 'meta',
+      landingPath: '/wines',
+      capturedAt: NOW.toISOString(),
+    });
+  });
+
+  it('keeps everything that arrived on one landing together', () => {
+    expect(
+      mergeAcquisition(
+        null,
+        {
+          utm: { source: 'google', medium: 'cpc' },
+          referrerDomain: 'google.com',
+          clickId: 'google',
+          landingPath: '/shop',
+        },
+        NOW,
+      ),
+    ).toEqual({
+      params: { source: 'google', medium: 'cpc' },
+      referrerDomain: 'google.com',
+      clickId: 'google',
+      landingPath: '/shop',
+      capturedAt: NOW.toISOString(),
+    });
+  });
+
+  it('replaces an old record wholesale: no old click ID or landing path carried over', () => {
+    const existing: StoredUtm = {
+      params: {},
+      clickId: 'google',
+      landingPath: '/old',
+      capturedAt: earlier,
+    };
+    expect(
+      mergeAcquisition(existing, { utm: { source: 'ig' }, referrerDomain: null }, NOW),
+    ).toEqual({ params: { source: 'ig' }, capturedAt: NOW.toISOString() });
+  });
+
+  it('starts a direct record (landing path only) when nothing is stored', () => {
+    expect(
+      mergeAcquisition(null, { utm: null, referrerDomain: null, landingPath: '/wines' }, NOW),
+    ).toEqual({ params: {}, landingPath: '/wines', capturedAt: NOW.toISOString() });
+  });
+
+  it('starts a direct record when the stored one expired', () => {
+    const stale = stored(
+      { source: 'email' },
+      new Date(NOW.getTime() - UTM_TTL_MS - 1).toISOString(),
+    );
+    expect(
+      mergeAcquisition(stale, { utm: null, referrerDomain: null, landingPath: '/' }, NOW),
+    ).toEqual({ params: {}, landingPath: '/', capturedAt: NOW.toISOString() });
+  });
+
+  it('never lets a direct landing replace an unexpired record, direct or not', () => {
+    const existing = stored({ source: 'email' }, earlier);
+    expect(
+      mergeAcquisition(existing, { utm: null, referrerDomain: null, landingPath: '/shop' }, NOW),
+    ).toBe(existing);
+
+    const direct: StoredUtm = { params: {}, landingPath: '/', capturedAt: earlier };
+    expect(
+      mergeAcquisition(direct, { utm: null, referrerDomain: null, landingPath: '/shop' }, NOW),
+    ).toBe(direct);
   });
 });

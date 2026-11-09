@@ -31,6 +31,23 @@ export function toHostname(value: string): string | null {
   }
 }
 
+/**
+ * Merges `www.` with its bare domain: strips a single leading `www.` when a
+ * domain remains (`www.instagram.com` → `instagram.com`). Other subdomains stay
+ * (`l.instagram.com`, `news.google.com`), and so does a host that is only
+ * `www.` plus one label.
+ */
+export function withoutWww(host: string): string {
+  return host.startsWith('www.') && host.split('.').length > 2 ? host.slice(4) : host;
+}
+
+/** A stored or reported referrer domain: the lowercase hostname of a hostname
+ * or origin, without a leading `www.`; null when it's neither. */
+export function normalizeReferrerDomain(value: string): string | null {
+  const host = toHostname(value);
+  return host ? withoutWww(host) : null;
+}
+
 function cleanHostname(hostname: string): string | null {
   const host = hostname.toLowerCase().replace(/\.$/, '');
   return host || null;
@@ -86,13 +103,14 @@ export function resolveInternalHosts(values: readonly string[]): string[] {
   });
 }
 
-/** The external referrer's hostname for this landing, or null when there is
- * none or it is internal (navigation within the brand's own property). */
+/** The external referrer's hostname for this landing, without a leading
+ * `www.`, or null when there is none or it is internal (navigation within the
+ * brand's own property). Internal detection sees the full hostname. */
 export function externalReferrerDomain(
   referrer: string,
   context: InternalHostContext,
 ): string | null {
   const host = referrerHostname(referrer);
   if (!host || isInternalReferrer(host, context)) return null;
-  return host;
+  return withoutWww(host);
 }

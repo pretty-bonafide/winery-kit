@@ -6,10 +6,18 @@
 // Analytics must never break commerce: `track` never throws, a failed sink
 // load or send warns once, and the events are dropped.
 import { readStoredAcquisition } from '../utm/storage.js';
-import { type AnalyticsEvent, type AnalyticsEventInput, buildAnalyticsEvent } from './core.js';
+import {
+  type AnalyticsEvent,
+  type AnalyticsEventInput,
+  buildAnalyticsEvent,
+  isPageExitEvent,
+} from './core.js';
 
 export interface AnalyticsSink {
+  /** Queues the event in the SDK's batch. */
   send(event: AnalyticsEvent): void;
+  /** Sends the SDK's batch now, in a request that outlives the page. */
+  flush(): void;
 }
 
 type TrackerState =
@@ -28,9 +36,12 @@ function warnOnce(message: string, detail?: unknown) {
   console.warn(`analytics: ${message}`, detail);
 }
 
+/** Sends one event, and the batch at once when the page is about to leave
+ * (see `isPageExitEvent`). */
 function deliver(sink: AnalyticsSink, event: AnalyticsEvent) {
   try {
     sink.send(event);
+    if (isPageExitEvent(event.eventType)) sink.flush();
   } catch (error) {
     warnOnce('sending an event failed — dropping it.', error);
   }
