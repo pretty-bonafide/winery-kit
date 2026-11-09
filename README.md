@@ -269,7 +269,8 @@ SDK. It exports `forwardToAmplitude(request, { serverZone?, fetch? })`, which
 posts the body to Amplitude's HTTP V2 API (`api2.amplitude.com`, or
 `api.eu.amplitude.com` for `serverZone: 'EU'`) and returns Amplitude's status
 and body. The upstream is fixed, so the endpoint can't be used as an open proxy.
-Only the JSON body is sent upstream: no cookies, client headers or IP. It answers
+Only the JSON body is sent upstream: no cookies, client headers or IP. It adds
+the visitor's location and a `traffic_class` to each event (below). It answers
 405 (with `Allow: POST`) to other methods, 415 to a body that isn't uncompressed
 JSON, 413 to one over Amplitude's 1 MB limit, 400 to invalid JSON, and 502 when
 Amplitude can't be reached.
@@ -298,6 +299,25 @@ sends none, because `trackingOptions.ipAddress` is false). Coordinates, postal
 code and DMA aren't sent. No visitor IP is sent to Amplitude or stored. Amplitude
 doesn't document whether these fields win over its own lookup of the request IP,
 so check a staging event's location before relying on it.
+
+Every forwarded event also gets a `traffic_class` event property, so dashboards
+can exclude bots. The forwarder computes it from `request.cf` and the
+`User-Agent` header and always replaces any value the client sent, so a script
+can't report itself as `human`. The first rule that matches wins:
+
+| `traffic_class` | When |
+|-----------------|------|
+| `verified_bot` | Cloudflare marks it a verified bot (`botManagement.verifiedBot`, or a `verifiedBotCategory`) |
+| `known_bot` | a Bot Management score from 1 to 29 (only on Enterprise Bot Management zones; a score of 0 means not computed and is ignored) |
+| `known_bot` | the user agent names itself a bot, crawler, headless browser or HTTP library (`bot`, `crawl`, `spider`, `HeadlessChrome`, `curl`, `python-requests`, `puppeteer`, `lighthouse`, `facebookexternalhit`, …), or is missing or empty, since every real browser sends one |
+| `datacenter` | the visitor's ASN is a major cloud or hosting network (AWS, Google Cloud, Azure, DigitalOcean, Hetzner, OVH, Linode, Vultr, Oracle, Alibaba, Tencent, Scaleway, Contabo, Leaseweb) |
+| `human` | none of the above |
+
+Networks that carry real people are deliberately not `datacenter`: Cloudflare
+(WARP), Akamai and Fastly (iCloud Private Relay) and Google's main network
+(Google Fi). The user agent and ASN themselves are never forwarded, only the
+class. The patterns and ASN list are data in `src/analytics-proxy/core.ts`.
+Events posted to Amplitude directly (no `serverUrl`) carry no `traffic_class`.
 
 ## UTM attribution and referrer (`/utm`)
 
