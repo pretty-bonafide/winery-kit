@@ -3,9 +3,11 @@ import {
   appendUtmToUrl,
   extractUtmParams,
   isExpired,
+  mergeAcquisition,
   mergeUtm,
   parseStoredUtm,
   type StoredUtm,
+  toAcquisition,
   UTM_TTL_MS,
 } from './core';
 
@@ -75,6 +77,65 @@ describe('parseStoredUtm', () => {
   });
 });
 
+describe('parseStoredUtm with a referrer', () => {
+  it('reads an old record (params only) unchanged, with no referrerDomain', () => {
+    const raw = JSON.stringify({ params: { source: 'ig' }, capturedAt: NOW.toISOString() });
+    const parsed = parseStoredUtm(raw);
+    expect(parsed).toEqual({ params: { source: 'ig' }, capturedAt: NOW.toISOString() });
+    expect(parsed).not.toHaveProperty('referrerDomain');
+  });
+
+  it('reads a referrer-only record (empty params) as valid', () => {
+    const record = { params: {}, referrerDomain: 'www.google.com', capturedAt: NOW.toISOString() };
+    expect(parseStoredUtm(JSON.stringify(record))).toEqual(record);
+  });
+
+  it('reads a record with both UTMs and a referrer', () => {
+    const record = {
+      params: { source: 'ig', medium: 'social' },
+      referrerDomain: 'l.instagram.com',
+      capturedAt: NOW.toISOString(),
+    };
+    expect(parseStoredUtm(JSON.stringify(record))).toEqual(record);
+  });
+
+  it('drops an invalid referrerDomain, and the record if nothing else survives', () => {
+    expect(
+      parseStoredUtm(
+        JSON.stringify({ params: { source: 'ig' }, referrerDomain: 42, capturedAt: NOW }),
+      ),
+    ).toEqual({ params: { source: 'ig' }, capturedAt: NOW.toISOString() });
+    expect(
+      parseStoredUtm(JSON.stringify({ params: {}, referrerDomain: '', capturedAt: NOW })),
+    ).toBeNull();
+    expect(
+      parseStoredUtm(JSON.stringify({ params: {}, referrerDomain: 'not a host', capturedAt: NOW })),
+    ).toBeNull();
+  });
+
+  it('still requires params to be an object', () => {
+    expect(
+      parseStoredUtm(JSON.stringify({ referrerDomain: 'www.google.com', capturedAt: NOW })),
+    ).toBeNull();
+  });
+});
+
+describe('toAcquisition', () => {
+  it('maps params and referrer, reading empty params as no UTMs', () => {
+    expect(toAcquisition(stored({ source: 'ig' }))).toEqual({
+      utm: { source: 'ig' },
+      referrerDomain: null,
+    });
+    expect(
+      toAcquisition({
+        params: {},
+        referrerDomain: 'www.google.com',
+        capturedAt: NOW.toISOString(),
+      }),
+    ).toEqual({ utm: null, referrerDomain: 'www.google.com' });
+  });
+});
+
 describe('isExpired', () => {
   it('is false within the TTL and true past it', () => {
     const captured = new Date(NOW.getTime() - UTM_TTL_MS);
@@ -116,6 +177,86 @@ describe('mergeUtm', () => {
 
   it('returns null when there is nothing stored and nothing incoming', () => {
     expect(mergeUtm(null, null, NOW)).toBeNull();
+  });
+});
+
+describe('mergeAcquisition', () => {
+  const earlier = new Date(NOW.getTime() - 1000).toISOString();
+
+  it('starts a new touch from UTMs alone, with no referrerDomain key', () => {
+    const merged = mergeAcquisition(null, { utm: { source: 'ig' }, referrerDomain: null }, NOW);
+    expect(merged).toEqual({ params: { source: 'ig' }, capturedAt: NOW.toISOString() });
+    expect(merged).not.toHaveProperty('referrerDomain');
+  });
+
+  it('starts a new touch from an external referrer alone, with empty params', () => {
+    expect(mergeAcquisition(null, { utm: null, referrerDomain: 'www.google.com' }, NOW)).toEqual({
+      params: {},
+      referrerDomain: 'www.google.com',
+      capturedAt: NOW.toISOString(),
+    });
+  });
+
+  it('stores both when the landing has UTMs and a referrer', () => {
+    expect(
+      mergeAcquisition(
+        stored({ source: 'old' }, earlier),
+        { utm: { source: 'ig', medium: 'social' }, referrerDomain: 'l.instagram.com' },
+        NOW,
+      ),
+    ).toEqual({
+      params: { source: 'ig', medium: 'social' },
+      referrerDomain: 'l.instagram.com',
+      capturedAt: NOW.toISOString(),
+    });
+  });
+
+  it('lets a referral replace an old UTM record wholesale', () => {
+    const existing = stored({ source: 'email', campaign: 'winter' }, earlier);
+    expect(
+      mergeAcquisition(existing, { utm: null, referrerDomain: 'www.winespectator.com' }, NOW),
+    ).toEqual({
+      params: {},
+      referrerDomain: 'www.winespectator.com',
+      capturedAt: NOW.toISOString(),
+    });
+  });
+
+  it('lets new UTMs replace an old referrer record wholesale (no referrer carried over)', () => {
+    const existing: StoredUtm = {
+      params: {},
+      referrerDomain: 'www.google.com',
+      capturedAt: earlier,
+    };
+    expect(
+      mergeAcquisition(existing, { utm: { source: 'ig' }, referrerDomain: null }, NOW),
+    ).toEqual({ params: { source: 'ig' }, capturedAt: NOW.toISOString() });
+  });
+
+  it('keeps an unexpired record on a direct landing', () => {
+    const existing = stored({ source: 'email' }, earlier);
+    expect(mergeAcquisition(existing, { utm: null, referrerDomain: null }, NOW)).toBe(existing);
+
+    const referral: StoredUtm = {
+      params: {},
+      referrerDomain: 'www.google.com',
+      capturedAt: earlier,
+    };
+    expect(mergeAcquisition(referral, { utm: null, referrerDomain: null }, NOW)).toBe(referral);
+  });
+
+  it('drops an expired record on a direct landing', () => {
+    const stale: StoredUtm = {
+      params: {},
+      referrerDomain: 'www.google.com',
+      capturedAt: new Date(NOW.getTime() - UTM_TTL_MS - 1).toISOString(),
+    };
+    expect(mergeAcquisition(stale, { utm: null, referrerDomain: null }, NOW)).toBeNull();
+  });
+
+  it('treats empty UTM params as none', () => {
+    const existing = stored({ source: 'email' }, earlier);
+    expect(mergeAcquisition(existing, { utm: {}, referrerDomain: null }, NOW)).toBe(existing);
   });
 });
 
