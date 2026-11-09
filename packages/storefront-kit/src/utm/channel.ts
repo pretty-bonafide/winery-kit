@@ -1,6 +1,6 @@
 // Pure channel classification of a stored acquisition. The domain and medium
 // lists are data; edit them here.
-import type { Acquisition } from './core.js';
+import type { Acquisition, ClickIdType } from './core.js';
 
 export type AcquisitionChannel =
   | 'paid'
@@ -54,28 +54,46 @@ const SEARCH_DOMAINS = [
   'startpage.com',
 ];
 
+// An ad click ID without a known `utm_medium`. Meta adds `fbclid` to organic
+// links too, so it only says social, not paid.
+const CLICK_ID_CHANNELS: Record<ClickIdType, AcquisitionChannel> = {
+  google: 'paid',
+  microsoft: 'paid',
+  tiktok: 'paid',
+  meta: 'social',
+};
+
 /**
- * The visitor's acquisition channel. UTMs win over the referrer: `utm_medium`
- * (case-insensitive) picks paid, email, social, search (`organic`) or referral,
- * and any other UTM is a campaign. Without UTMs the referrer's hostname picks
- * email (webmail), social, search, or referral for any other site. Nothing at
- * all is direct.
+ * The visitor's acquisition channel, first match wins:
+ *
+ * 1. a `utm_medium` (case-insensitive) that names a channel: paid, email,
+ *    social, search (`organic`) or referral;
+ * 2. an ad click ID: Google, Microsoft or TikTok is paid, Meta is social;
+ * 3. any other UTM (an unknown medium, or none) is a campaign;
+ * 4. the referrer's hostname: email (webmail), social, search, or referral for
+ *    any other site;
+ * 5. nothing at all is direct.
  */
 export function classifyChannel(acquisition: Acquisition): AcquisitionChannel {
-  const { utm, referrerDomain } = acquisition;
-  if (utm && Object.keys(utm).length > 0) return mediumChannel(utm.medium);
+  const { utm, referrerDomain, clickId } = acquisition;
+  const hasUtm = utm !== null && Object.keys(utm).length > 0;
+  const fromMedium = hasUtm ? mediumChannel(utm.medium) : null;
+  if (fromMedium) return fromMedium;
+  if (clickId && CLICK_ID_CHANNELS[clickId]) return CLICK_ID_CHANNELS[clickId];
+  if (hasUtm) return 'campaign';
   if (!referrerDomain) return 'direct';
   return referrerChannel(referrerDomain.toLowerCase());
 }
 
-function mediumChannel(rawMedium: string | undefined): AcquisitionChannel {
+/** The channel a `utm_medium` names, or null for none or an unknown one. */
+function mediumChannel(rawMedium: string | undefined): AcquisitionChannel | null {
   const medium = rawMedium?.trim().toLowerCase() ?? '';
   if (medium.startsWith('paid') || PAID_MEDIUMS.includes(medium)) return 'paid';
   if (EMAIL_MEDIUMS.includes(medium)) return 'email';
   if (SOCIAL_MEDIUMS.includes(medium)) return 'social';
   if (medium === 'organic') return 'search';
   if (medium === 'referral') return 'referral';
-  return 'campaign';
+  return null;
 }
 
 function referrerChannel(host: string): AcquisitionChannel {

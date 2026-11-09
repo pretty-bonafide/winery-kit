@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   externalReferrerDomain,
   isInternalReferrer,
+  normalizeReferrerDomain,
   referrerHostname,
   resolveInternalHosts,
   siteDomain,
   toHostname,
+  withoutWww,
 } from './referrer.js';
 
 describe('referrerHostname', () => {
@@ -129,8 +131,19 @@ describe('resolveInternalHosts', () => {
 describe('externalReferrerDomain', () => {
   const context = { pageHost: 'pacowinery.com', internalHosts: ['store.example.net'] };
 
-  it('is the hostname of an external referrer', () => {
-    expect(externalReferrerDomain('https://www.google.com/', context)).toBe('www.google.com');
+  it('is the hostname of an external referrer, without a leading www.', () => {
+    expect(externalReferrerDomain('https://www.google.com/', context)).toBe('google.com');
+    expect(externalReferrerDomain('https://l.instagram.com/?u=x', context)).toBe('l.instagram.com');
+  });
+
+  it('detects an internal referrer before stripping www.', () => {
+    expect(
+      externalReferrerDomain('https://www.store.example.net/', {
+        pageHost: 'pacowinery.com',
+        internalHosts: ['www.store.example.net'],
+      }),
+    ).toBeNull();
+    expect(externalReferrerDomain('https://www.pacowinery.com/', context)).toBeNull();
   });
 
   it('is null for no referrer, an invalid one, or an internal one', () => {
@@ -138,5 +151,34 @@ describe('externalReferrerDomain', () => {
     expect(externalReferrerDomain('garbage', context)).toBeNull();
     expect(externalReferrerDomain('https://www.pacowinery.com/wines', context)).toBeNull();
     expect(externalReferrerDomain('https://store.example.net/cart', context)).toBeNull();
+  });
+});
+
+describe('withoutWww', () => {
+  it('strips a single leading www.', () => {
+    expect(withoutWww('www.instagram.com')).toBe('instagram.com');
+    expect(withoutWww('www.google.co.uk')).toBe('google.co.uk');
+    expect(withoutWww('www.www.example.com')).toBe('www.example.com');
+  });
+
+  it('keeps other subdomains and a bare www. host', () => {
+    expect(withoutWww('l.instagram.com')).toBe('l.instagram.com');
+    expect(withoutWww('news.google.com')).toBe('news.google.com');
+    expect(withoutWww('www2.example.com')).toBe('www2.example.com');
+    expect(withoutWww('www.com')).toBe('www.com');
+    expect(withoutWww('instagram.com')).toBe('instagram.com');
+  });
+});
+
+describe('normalizeReferrerDomain', () => {
+  it('lowercases, reduces an origin to its host and strips www.', () => {
+    expect(normalizeReferrerDomain('WWW.Instagram.com')).toBe('instagram.com');
+    expect(normalizeReferrerDomain('https://www.google.com')).toBe('google.com');
+    expect(normalizeReferrerDomain('l.instagram.com')).toBe('l.instagram.com');
+  });
+
+  it('is null for something that is not a hostname', () => {
+    expect(normalizeReferrerDomain('')).toBeNull();
+    expect(normalizeReferrerDomain('not a host')).toBeNull();
   });
 });

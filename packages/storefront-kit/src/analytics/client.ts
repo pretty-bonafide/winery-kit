@@ -36,6 +36,13 @@ async function loadAmplitudeSink(config: EnabledAnalyticsConfig): Promise<Analyt
     send(event) {
       client.track(event.eventType, event.eventProperties);
     },
+    // The fetch transport sends with `keepalive` (bodies up to 16 KB), so the
+    // upload survives the navigation that follows, and it posts uncompressed
+    // application/json, which /analytics-proxy accepts. (The SDK's beacon
+    // transport would post text/plain, which the proxy refuses.)
+    flush() {
+      void client.flush().promise.catch(() => {});
+    },
   };
 }
 

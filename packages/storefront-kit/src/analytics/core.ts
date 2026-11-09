@@ -3,6 +3,7 @@
 // reads storage and talks to Amplitude.
 import { classifyChannel } from '../utm/channel.js';
 import { type Acquisition, UTM_KEYS } from '../utm/core.js';
+import { normalizeReferrerDomain } from '../utm/referrer.js';
 
 export type AmplitudeServerZone = 'US' | 'EU';
 
@@ -86,7 +87,8 @@ export type AnalyticsEventType =
   | 'page_viewed'
   | 'product_viewed'
   | 'product_added_to_cart'
-  | 'checkout_started';
+  | 'checkout_started'
+  | 'store_link_clicked';
 
 export type AnalyticsEventProperties = Record<string, string | number>;
 
@@ -126,11 +128,52 @@ export interface CheckoutStartedInput {
   cartSubtotalCents: number;
 }
 
+/** What a store link opens, from its `data-store-destination` attribute. */
+export type StoreDestination =
+  | 'club_join'
+  | 'shop'
+  | 'account'
+  | 'reservation'
+  | 'gift_card'
+  | 'other';
+
+export const STORE_DESTINATIONS: readonly StoreDestination[] = [
+  'club_join',
+  'shop',
+  'account',
+  'reservation',
+  'gift_card',
+  'other',
+];
+
+export interface StoreLinkClickedInput {
+  type: 'store_link_clicked';
+  destination: StoreDestination;
+  /** The store URL's path (its query and hash are dropped). */
+  linkPath: string;
+  /** The current page's path. */
+  path: string;
+}
+
 export type AnalyticsEventInput =
   | PageViewedInput
   | ProductViewedInput
   | ProductAddedToCartInput
-  | CheckoutStartedInput;
+  | CheckoutStartedInput
+  | StoreLinkClickedInput;
+
+/**
+ * Events tracked right before the page navigates away to the store. The
+ * tracker sends these at once (a keepalive request) instead of waiting for the
+ * SDK's batch interval, which the navigation would cut short.
+ */
+export function isPageExitEvent(eventType: AnalyticsEventType): boolean {
+  return eventType === 'checkout_started' || eventType === 'store_link_clicked';
+}
+
+export function isStoreDestination(value: unknown): value is StoreDestination {
+  return STORE_DESTINATIONS.includes(value as StoreDestination);
+}
 
 export interface AnalyticsContext {
   site: string;
@@ -140,8 +183,8 @@ export interface AnalyticsContext {
 
 /**
  * Builds the Amplitude event for one input, or null when the input can't
- * describe a real event (no product slug, an unknown view surface, a
- * non-positive quantity, a path that isn't one). Optional fields that don't validate (a fractional price, a blank
+ * describe a real event (no product slug, an unknown view surface or store
+ * destination, a non-positive quantity, a path that isn't one). Optional fields that don't validate (a fractional price, a blank
  * name) are left off rather than sinking the event. Money stays in cents.
  */
 export function buildAnalyticsEvent(
@@ -183,6 +226,12 @@ function buildEventProperties(input: AnalyticsEventInput): AnalyticsEventPropert
         cart_item_count: input.cartItemCount,
         cart_subtotal_cents: input.cartSubtotalCents,
       };
+    case 'store_link_clicked': {
+      const linkPath = normalizePath(input.linkPath);
+      const path = normalizePath(input.path);
+      if (!isStoreDestination(input.destination) || !linkPath || !path) return null;
+      return { destination: input.destination, link_path: linkPath, path };
+    }
   }
 }
 
@@ -211,14 +260,20 @@ function normalizePath(raw: string): string | null {
   return path?.startsWith('/') ? path : null;
 }
 
-/** `utm_*` and `referrer_domain` when known, and the `channel` always. */
+/** `utm_*`, `referrer_domain` (without `www.`), `click_id_type` and
+ * `landing_path` when known, and the `channel` always. */
 function acquisitionProperties(acquisition: Acquisition): AnalyticsEventProperties {
   const properties: AnalyticsEventProperties = {};
   for (const key of UTM_KEYS) {
     const value = acquisition.utm?.[key];
     if (value) properties[`utm_${key}`] = value;
   }
-  if (acquisition.referrerDomain) properties.referrer_domain = acquisition.referrerDomain;
+  const referrerDomain = acquisition.referrerDomain
+    ? normalizeReferrerDomain(acquisition.referrerDomain)
+    : null;
+  if (referrerDomain) properties.referrer_domain = referrerDomain;
+  if (acquisition.clickId) properties.click_id_type = acquisition.clickId;
+  if (acquisition.landingPath) properties.landing_path = acquisition.landingPath;
   properties.channel = classifyChannel(acquisition);
   return properties;
 }

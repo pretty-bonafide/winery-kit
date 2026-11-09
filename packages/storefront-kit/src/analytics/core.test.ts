@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   type AnalyticsContext,
   type AnalyticsEventInput,
+  type AnalyticsEventType,
   buildAnalyticsEvent,
+  isPageExitEvent,
   resolveAnalyticsConfig,
+  type StoreDestination,
 } from './core.js';
 
 const CONTEXT: AnalyticsContext = {
@@ -113,13 +116,13 @@ describe('buildAnalyticsEvent', () => {
     });
   });
 
-  it('reports a referrer-only acquisition as referrer_domain and its channel', () => {
+  it('reports a referrer-only acquisition as referrer_domain (without www.) and its channel', () => {
     expect(
       buildAnalyticsEvent(
         { type: 'page_viewed', path: '/' },
         { site: 'paco', acquisition: { utm: null, referrerDomain: 'www.google.com' } },
       )?.eventProperties,
-    ).toEqual({ site: 'paco', referrer_domain: 'www.google.com', channel: 'search', path: '/' });
+    ).toEqual({ site: 'paco', referrer_domain: 'google.com', channel: 'search', path: '/' });
   });
 
   it('always reports a channel, direct with no acquisition, and no referrer_domain', () => {
@@ -141,6 +144,7 @@ describe('buildAnalyticsEvent', () => {
       { type: 'product_viewed', surface: 'card', productSlug: 'cab-2022' },
       { type: 'product_added_to_cart', productSlug: 'cab-2022', quantity: 1 },
       { type: 'checkout_started', cartItemCount: 1, cartSubtotalCents: 4500 },
+      { type: 'store_link_clicked', destination: 'shop', linkPath: '/', path: '/' },
     ];
     for (const input of inputs) {
       expect(buildAnalyticsEvent(input, context)?.eventProperties).toMatchObject({
@@ -308,5 +312,138 @@ describe('buildAnalyticsEvent', () => {
         ),
       ).toBeNull();
     });
+  });
+});
+
+describe('buildAnalyticsEvent click ID and landing path', () => {
+  it('reports click_id_type and landing_path when known, and the click ID channel', () => {
+    expect(
+      buildAnalyticsEvent(
+        { type: 'page_viewed', path: '/shop' },
+        {
+          site: 'paco',
+          acquisition: {
+            utm: null,
+            referrerDomain: 'google.com',
+            clickId: 'google',
+            landingPath: '/wines',
+          },
+        },
+      )?.eventProperties,
+    ).toEqual({
+      site: 'paco',
+      referrer_domain: 'google.com',
+      click_id_type: 'google',
+      landing_path: '/wines',
+      channel: 'paid',
+      path: '/shop',
+    });
+  });
+
+  it('reports a direct visitor’s landing path with channel direct', () => {
+    expect(
+      buildAnalyticsEvent(
+        { type: 'page_viewed', path: '/' },
+        { site: 'paco', acquisition: { utm: null, referrerDomain: null, landingPath: '/visit' } },
+      )?.eventProperties,
+    ).toEqual({ site: 'paco', landing_path: '/visit', channel: 'direct', path: '/' });
+  });
+
+  it('leaves them off when unknown', () => {
+    const properties = buildAnalyticsEvent(
+      { type: 'page_viewed', path: '/' },
+      CONTEXT,
+    )?.eventProperties;
+    expect(properties).not.toHaveProperty('click_id_type');
+    expect(properties).not.toHaveProperty('landing_path');
+  });
+});
+
+describe('buildAnalyticsEvent store_link_clicked', () => {
+  it('reports the destination, the store link path and the page path', () => {
+    expect(
+      buildAnalyticsEvent(
+        {
+          type: 'store_link_clicked',
+          destination: 'club_join',
+          linkPath: '/clubs/reserve/join',
+          path: '/club',
+        },
+        {
+          site: 'paco',
+          acquisition: { utm: { source: 'newsletter', medium: 'email' }, referrerDomain: null },
+        },
+      ),
+    ).toEqual({
+      eventType: 'store_link_clicked',
+      eventProperties: {
+        site: 'paco',
+        utm_source: 'newsletter',
+        utm_medium: 'email',
+        channel: 'email',
+        destination: 'club_join',
+        link_path: '/clubs/reserve/join',
+        path: '/club',
+      },
+    });
+  });
+
+  it.each<StoreDestination>([
+    'club_join',
+    'shop',
+    'account',
+    'reservation',
+    'gift_card',
+    'other',
+  ])('accepts destination %s', (destination) => {
+    expect(
+      buildAnalyticsEvent(
+        { type: 'store_link_clicked', destination, linkPath: '/', path: '/' },
+        CONTEXT,
+      )?.eventProperties.destination,
+    ).toBe(destination);
+  });
+
+  it('drops the query string and hash from both paths', () => {
+    expect(
+      buildAnalyticsEvent(
+        {
+          type: 'store_link_clicked',
+          destination: 'shop',
+          linkPath: '/wines?utm_source=ig#x',
+          path: '/?a=1',
+        },
+        CONTEXT,
+      )?.eventProperties,
+    ).toMatchObject({ link_path: '/wines', path: '/' });
+  });
+
+  it('rejects an unknown destination or a path that is not one', () => {
+    const valid = {
+      type: 'store_link_clicked',
+      destination: 'shop',
+      linkPath: '/',
+      path: '/',
+    } as const;
+    expect(
+      buildAnalyticsEvent(
+        { ...valid, destination: 'Shop' as unknown as StoreDestination },
+        CONTEXT,
+      ),
+    ).toBeNull();
+    expect(buildAnalyticsEvent({ ...valid, linkPath: '' }, CONTEXT)).toBeNull();
+    expect(buildAnalyticsEvent({ ...valid, path: 'club' }, CONTEXT)).toBeNull();
+  });
+});
+
+describe('isPageExitEvent', () => {
+  it.each<[AnalyticsEventType, boolean]>([
+    ['store_link_clicked', true],
+    ['checkout_started', true],
+    ['page_viewed', false],
+    ['product_viewed', false],
+    ['product_added_to_cart', false],
+  ])('%s → %s', (eventType, expected) => {
+    expect(isPageExitEvent(eventType)).toBe(expected);
   });
 });

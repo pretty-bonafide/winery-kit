@@ -1,8 +1,10 @@
 import {
   type Acquisition,
+  extractClickIdType,
   extractUtmParams,
   isExpired,
   mergeAcquisition,
+  normalizeLandingPath,
   parseStoredUtm,
   toAcquisition,
   type UtmParams,
@@ -53,10 +55,10 @@ function takeDocumentReferrer(): string {
 }
 
 /**
- * Captures the landing's `utm_*` params and external referrer hostname from
- * the current location and persists them with last-touch semantics. Storage
- * failures (Safari private mode, disabled storage) degrade to "no
- * attribution" — never a broken page.
+ * Captures the landing's `utm_*` params, external referrer hostname, ad click
+ * ID type and path from the current location and persists them with
+ * last-touch semantics. Storage failures (Safari private mode, disabled
+ * storage) degrade to "no attribution" — never a broken page.
  */
 export function captureUtmFromLocation(now: () => Date = () => new Date()): void {
   if (typeof window === 'undefined') return;
@@ -64,14 +66,16 @@ export function captureUtmFromLocation(now: () => Date = () => new Date()): void
   try {
     const referrer = takeDocumentReferrer();
     const existing = parseStoredUtm(window.localStorage.getItem(storageKey));
+    const { search, hostname, pathname } = window.location;
+    const clickId = extractClickIdType(search ?? '');
+    const landingPath = normalizeLandingPath(pathname);
     const landing: Acquisition = {
-      utm: extractUtmParams(window.location.search),
+      utm: extractUtmParams(search ?? ''),
       referrerDomain: referrer
-        ? externalReferrerDomain(referrer, {
-            pageHost: window.location.hostname ?? '',
-            internalHosts,
-          })
+        ? externalReferrerDomain(referrer, { pageHost: hostname ?? '', internalHosts })
         : null,
+      ...(clickId && { clickId }),
+      ...(landingPath && { landingPath }),
     };
     const merged = mergeAcquisition(existing, landing, now());
 
@@ -86,13 +90,14 @@ export function captureUtmFromLocation(now: () => Date = () => new Date()): void
 }
 
 /** The stored acquisition's UTM params, or null when it has none (no record,
- * expired, or a referrer-only touch). */
+ * expired, or a touch without UTMs: referrer, click ID or direct). */
 export function readStoredUtm(now: () => Date = () => new Date()): UtmParams | null {
   return readStoredAcquisition(now).utm;
 }
 
-/** The stored acquisition (UTMs and external referrer hostname); both null
- * when there is none, it expired, or storage is unavailable. */
+/** The stored acquisition (UTMs, external referrer hostname, click ID type,
+ * landing path); `utm` and `referrerDomain` null and the others absent when
+ * there is none, it expired, or storage is unavailable. */
 export function readStoredAcquisition(now: () => Date = () => new Date()): Acquisition {
   if (typeof window === 'undefined') return { utm: null, referrerDomain: null };
 
