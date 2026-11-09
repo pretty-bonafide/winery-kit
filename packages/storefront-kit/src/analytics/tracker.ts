@@ -5,7 +5,7 @@
 //
 // Analytics must never break commerce: `track` never throws, a failed sink
 // load or send warns once, and the events are dropped.
-import { readStoredUtm } from '../utm/storage.js';
+import { readStoredAcquisition } from '../utm/storage.js';
 import { type AnalyticsEvent, type AnalyticsEventInput, buildAnalyticsEvent } from './core.js';
 
 export interface AnalyticsSink {
@@ -67,7 +67,10 @@ export function track(input: AnalyticsEventInput): void {
   try {
     if (state.status === 'off' || state.status === 'failed') return;
 
-    const event = buildAnalyticsEvent(input, { site: state.site, utm: readStoredUtm() });
+    const event = buildAnalyticsEvent(input, {
+      site: state.site,
+      acquisition: readStoredAcquisition(),
+    });
     if (!event) {
       console.warn(`analytics: dropped an invalid ${input.type} event.`, input);
       return;

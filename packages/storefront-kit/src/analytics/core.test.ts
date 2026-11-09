@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { type AnalyticsContext, buildAnalyticsEvent, resolveAnalyticsConfig } from './core.js';
+import {
+  type AnalyticsContext,
+  type AnalyticsEventInput,
+  buildAnalyticsEvent,
+  resolveAnalyticsConfig,
+} from './core.js';
 
-const CONTEXT: AnalyticsContext = { site: 'paco', utm: null };
+const CONTEXT: AnalyticsContext = {
+  site: 'paco',
+  acquisition: { utm: null, referrerDomain: null },
+};
 
 describe('resolveAnalyticsConfig', () => {
   it('is disabled when no api key is given', () => {
@@ -84,7 +92,10 @@ describe('buildAnalyticsEvent', () => {
         { type: 'page_viewed', path: '/wines' },
         {
           site: 'paco',
-          utm: { source: 'ig', medium: 'social', campaign: 'spring', content: 'hero' },
+          acquisition: {
+            utm: { source: 'ig', medium: 'social', campaign: 'spring', content: 'hero' },
+            referrerDomain: 'l.instagram.com',
+          },
         },
       ),
     ).toEqual({
@@ -95,15 +106,55 @@ describe('buildAnalyticsEvent', () => {
         utm_medium: 'social',
         utm_campaign: 'spring',
         utm_content: 'hero',
+        referrer_domain: 'l.instagram.com',
+        channel: 'social',
         path: '/wines',
       },
     });
   });
 
+  it('reports a referrer-only acquisition as referrer_domain and its channel', () => {
+    expect(
+      buildAnalyticsEvent(
+        { type: 'page_viewed', path: '/' },
+        { site: 'paco', acquisition: { utm: null, referrerDomain: 'www.google.com' } },
+      )?.eventProperties,
+    ).toEqual({ site: 'paco', referrer_domain: 'www.google.com', channel: 'search', path: '/' });
+  });
+
+  it('always reports a channel, direct with no acquisition, and no referrer_domain', () => {
+    const properties = buildAnalyticsEvent(
+      { type: 'page_viewed', path: '/' },
+      CONTEXT,
+    )?.eventProperties;
+    expect(properties).toEqual({ site: 'paco', channel: 'direct', path: '/' });
+    expect(properties).not.toHaveProperty('referrer_domain');
+  });
+
+  it('adds the acquisition properties to every event type', () => {
+    const context: AnalyticsContext = {
+      site: 'paco',
+      acquisition: { utm: { source: 'newsletter', medium: 'email' }, referrerDomain: null },
+    };
+    const inputs: AnalyticsEventInput[] = [
+      { type: 'page_viewed', path: '/' },
+      { type: 'product_viewed', surface: 'card', productSlug: 'cab-2022' },
+      { type: 'product_added_to_cart', productSlug: 'cab-2022', quantity: 1 },
+      { type: 'checkout_started', cartItemCount: 1, cartSubtotalCents: 4500 },
+    ];
+    for (const input of inputs) {
+      expect(buildAnalyticsEvent(input, context)?.eventProperties).toMatchObject({
+        utm_source: 'newsletter',
+        utm_medium: 'email',
+        channel: 'email',
+      });
+    }
+  });
+
   it('never lets event properties re-author the acquisition', () => {
     const event = buildAnalyticsEvent(
       { type: 'page_viewed', path: '/' },
-      { site: 'paco', utm: { source: 'email' } },
+      { site: 'paco', acquisition: { utm: { source: 'email' }, referrerDomain: null } },
     );
     expect(event?.eventProperties).not.toHaveProperty('utm_medium');
     expect(event?.eventProperties.utm_source).toBe('email');
@@ -140,6 +191,7 @@ describe('buildAnalyticsEvent', () => {
         eventType: 'product_viewed',
         eventProperties: {
           site: 'paco',
+          channel: 'direct',
           surface: 'page',
           product_slug: 'cab-2022',
           product_name: 'Cabernet 2022',
@@ -154,7 +206,7 @@ describe('buildAnalyticsEvent', () => {
           { type: 'product_viewed', surface: 'card', productSlug: 'cab-2022' },
           CONTEXT,
         )?.eventProperties,
-      ).toEqual({ site: 'paco', surface: 'card', product_slug: 'cab-2022' });
+      ).toEqual({ site: 'paco', channel: 'direct', surface: 'card', product_slug: 'cab-2022' });
     });
 
     it('omits a blank name and a price that is not whole non-negative cents', () => {
@@ -170,7 +222,7 @@ describe('buildAnalyticsEvent', () => {
             },
             CONTEXT,
           )?.eventProperties,
-        ).toEqual({ site: 'paco', surface: 'page', product_slug: 'cab-2022' });
+        ).toEqual({ site: 'paco', channel: 'direct', surface: 'page', product_slug: 'cab-2022' });
       }
     });
 
@@ -203,7 +255,13 @@ describe('buildAnalyticsEvent', () => {
           { type: 'product_added_to_cart', productSlug: 'cab-2022', priceCents: 4500, quantity: 2 },
           CONTEXT,
         )?.eventProperties,
-      ).toEqual({ site: 'paco', product_slug: 'cab-2022', price_cents: 4500, quantity: 2 });
+      ).toEqual({
+        site: 'paco',
+        channel: 'direct',
+        product_slug: 'cab-2022',
+        price_cents: 4500,
+        quantity: 2,
+      });
     });
 
     it('rejects a non-positive or fractional quantity', () => {
@@ -227,7 +285,12 @@ describe('buildAnalyticsEvent', () => {
         ),
       ).toEqual({
         eventType: 'checkout_started',
-        eventProperties: { site: 'paco', cart_item_count: 3, cart_subtotal_cents: 13500 },
+        eventProperties: {
+          site: 'paco',
+          channel: 'direct',
+          cart_item_count: 3,
+          cart_subtotal_cents: 13500,
+        },
       });
     });
 

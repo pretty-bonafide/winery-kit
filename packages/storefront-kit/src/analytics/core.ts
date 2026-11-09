@@ -1,7 +1,8 @@
 // Pure core of the top-of-funnel analytics module: config resolution and the
 // fixed event schema. No SDK, no globals — the shell (tracker.ts / client.ts)
 // reads storage and talks to Amplitude.
-import { UTM_KEYS, type UtmParams } from '../utm/core.js';
+import { classifyChannel } from '../utm/channel.js';
+import { type Acquisition, UTM_KEYS } from '../utm/core.js';
 
 export type AmplitudeServerZone = 'US' | 'EU';
 
@@ -133,8 +134,8 @@ export type AnalyticsEventInput =
 
 export interface AnalyticsContext {
   site: string;
-  /** The visitor's stored acquisition, reported unchanged (RULES.md §3). */
-  utm: UtmParams | null;
+  /** The visitor's stored last-touch acquisition, reported unchanged (RULES.md §3). */
+  acquisition: Acquisition;
 }
 
 /**
@@ -152,7 +153,11 @@ export function buildAnalyticsEvent(
 
   return {
     eventType: input.type,
-    eventProperties: { site: context.site, ...utmProperties(context.utm), ...properties },
+    eventProperties: {
+      site: context.site,
+      ...acquisitionProperties(context.acquisition),
+      ...properties,
+    },
   };
 }
 
@@ -199,19 +204,22 @@ function productProperties(input: {
 }
 
 /** Path only: the query string (which carries UTMs) and hash are dropped — the
- * acquisition is reported once, as `utm_*` properties. */
+ * acquisition is reported once, as the `utm_*`, `referrer_domain` and `channel`
+ * properties. */
 function normalizePath(raw: string): string | null {
   const path = raw?.trim().split(/[?#]/, 1)[0];
   return path?.startsWith('/') ? path : null;
 }
 
-function utmProperties(utm: UtmParams | null): AnalyticsEventProperties {
+/** `utm_*` and `referrer_domain` when known, and the `channel` always. */
+function acquisitionProperties(acquisition: Acquisition): AnalyticsEventProperties {
   const properties: AnalyticsEventProperties = {};
-  if (!utm) return properties;
   for (const key of UTM_KEYS) {
-    const value = utm[key];
+    const value = acquisition.utm?.[key];
     if (value) properties[`utm_${key}`] = value;
   }
+  if (acquisition.referrerDomain) properties.referrer_domain = acquisition.referrerDomain;
+  properties.channel = classifyChannel(acquisition);
   return properties;
 }
 

@@ -60,9 +60,12 @@ and login, so orders are attributable even though checkout happens on another or
 **Behavior**
 - Capture `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content` from the
   URL on **every page load** (a small component included in the base layout).
-- **Last-touch attribution:** new UTM params replace the stored set wholesale — never merge
-  across campaigns.
-- Store in `localStorage` key `pg_utm_v1` as `{ params, capturedAt }` with a **30-day TTL**;
+- Capture the external referrer's **hostname** (never the full URL); referrers from the
+  site's own domain and configured `internalHosts` are internal and ignored.
+- **Last-touch attribution:** new UTM params or an external referrer replace the stored
+  record wholesale — never merge across touches.
+- Store in `localStorage` key `pg_utm_v1` as `{ params, referrerDomain?, capturedAt }`
+  with a **30-day TTL**;
   expired records read as "no attribution". Sites that predate the kit keep their original
   `{brand}_utm_v1` key through `configureUtmStorage` / `utmStorageKey`.
 - Storage failures (private mode, disabled storage) degrade silently to no attribution.

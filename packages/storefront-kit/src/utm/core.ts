@@ -1,3 +1,5 @@
+import { toHostname } from './referrer.js';
+
 export const UTM_KEYS = ['source', 'medium', 'campaign', 'term', 'content'] as const;
 
 export type UtmKey = (typeof UTM_KEYS)[number];
@@ -5,9 +7,23 @@ export type UtmKey = (typeof UTM_KEYS)[number];
 /** UTM values keyed WITHOUT the `utm_` prefix; only present keys are stored. */
 export type UtmParams = Partial<Record<UtmKey, string>>;
 
+/**
+ * The stored last-touch acquisition. `params` is empty when the touch was an
+ * external referrer without UTMs; `referrerDomain` (a hostname, never a full
+ * URL) is absent when the landing had no external referrer. Records written
+ * before referrer capture (params only) read unchanged.
+ */
 export interface StoredUtm {
   params: UtmParams;
+  referrerDomain?: string;
   capturedAt: string;
+}
+
+/** What brought the visitor: the touch's UTMs and external referrer hostname.
+ * Both null is direct (or unknown). */
+export interface Acquisition {
+  utm: UtmParams | null;
+  referrerDomain: string | null;
 }
 
 export const UTM_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -50,9 +66,26 @@ export function parseStoredUtm(raw: string | null): StoredUtm | null {
     if (typeof paramValue === 'string' && paramValue) params[key] = paramValue;
   }
 
-  if (Object.keys(params).length === 0) return null;
+  const referrerDomain =
+    typeof record.referrerDomain === 'string' ? toHostname(record.referrerDomain) : null;
 
-  return { params, capturedAt: record.capturedAt };
+  if (Object.keys(params).length === 0 && !referrerDomain) return null;
+
+  return referrerDomain
+    ? { params, referrerDomain, capturedAt: record.capturedAt }
+    : { params, capturedAt: record.capturedAt };
+}
+
+/** The stored record as an acquisition: empty params read as no UTMs. */
+export function toAcquisition(stored: StoredUtm): Acquisition {
+  return {
+    utm: hasParams(stored.params) ? stored.params : null,
+    referrerDomain: stored.referrerDomain ?? null,
+  };
+}
+
+function hasParams(params: UtmParams | null): params is UtmParams {
+  return params !== null && Object.keys(params).length > 0;
 }
 
 export function isExpired(stored: StoredUtm, now: Date, ttlMs: number = UTM_TTL_MS): boolean {
@@ -62,17 +95,34 @@ export function isExpired(stored: StoredUtm, now: Date, ttlMs: number = UTM_TTL_
 }
 
 /**
- * Last-touch attribution: incoming params replace the stored record wholesale.
- * Per-key merging would mix values from unrelated campaigns.
+ * Last-touch attribution: a landing with UTMs or an external referrer is a new
+ * touch and replaces the stored record wholesale, keeping both when both
+ * arrived. Per-key merging would mix values from unrelated touches. A landing
+ * with neither (direct, or navigation within the site) keeps an unexpired
+ * record.
  */
+export function mergeAcquisition(
+  existing: StoredUtm | null,
+  landing: Acquisition,
+  now: Date,
+): StoredUtm | null {
+  const { utm, referrerDomain } = landing;
+  if (hasParams(utm) || referrerDomain) {
+    const params = hasParams(utm) ? utm : {};
+    const capturedAt = now.toISOString();
+    return referrerDomain ? { params, referrerDomain, capturedAt } : { params, capturedAt };
+  }
+  if (existing && !isExpired(existing, now)) return existing;
+  return null;
+}
+
+/** {@link mergeAcquisition} for a landing that carries only UTMs. */
 export function mergeUtm(
   existing: StoredUtm | null,
   incoming: UtmParams | null,
   now: Date,
 ): StoredUtm | null {
-  if (incoming) return { params: incoming, capturedAt: now.toISOString() };
-  if (existing && !isExpired(existing, now)) return existing;
-  return null;
+  return mergeAcquisition(existing, { utm: incoming, referrerDomain: null }, now);
 }
 
 /**

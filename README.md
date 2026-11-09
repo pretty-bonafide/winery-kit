@@ -120,15 +120,40 @@ reusable View/Theme/Storybook conventions, with `CartSidebar` as the worked exam
 the winery's own Amplitude project (one project, one browser API key, per
 winery). Purchases and orders are out of scope.
 
-| Event | Fired by | Properties (besides `site` + stored `utm_*`) |
+| Event | Fired by | Properties (besides `site` and the acquisition properties below) |
 |-------|----------|-----------------------------------------------|
 | `page_viewed` | the site, via `trackPageView()` | `path` (no query string) |
 | `product_viewed` | `usePurchasePanel` (PDP) or `usePurchaseAction` (product card), once per mount, when its product has resolved and half of the `viewRef` element has been on screen | `surface` (`page` from the panel, `card` from a card), `product_slug`, `product_name`, `price_cents` |
 | `product_added_to_cart` | `useAddToCart`, after a successful add | `product_slug`, `product_name`, `price_cents`, `quantity` |
 | `checkout_started` | `useCartSidebar().checkout` (the `CartSidebar` button) | `cart_item_count`, `cart_subtotal_cents` |
 
-`utm_*` are the visitor's stored acquisition from `captureUtmFromLocation`,
-reported unchanged (RULES.md §3). Money is always integer cents.
+Money is always integer cents.
+
+Every event also carries the visitor's stored last-touch acquisition from
+`captureUtmFromLocation` (see [UTM attribution and referrer](#utm-attribution-and-referrer-utm)),
+reported unchanged (RULES.md §3):
+
+| Property | When | Value |
+|----------|------|-------|
+| `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content` | the touch had that UTM | as captured |
+| `referrer_domain` | the touch had an external referrer | its hostname only, e.g. `www.google.com` (never a full URL) |
+| `channel` | always | `paid`, `email`, `social`, `search`, `referral`, `campaign` or `direct` |
+
+`channel` comes from `classifyChannel` (`/utm`). UTMs win over the referrer:
+
+| `channel` | From UTMs (`utm_medium`, case-insensitive) | Else from the referrer hostname (and its subdomains) |
+|-----------|--------------------------------------------|------------------------------------------------------|
+| `paid` | `cpc`, `ppc`, `paid*` (`paidsocial`, `paid_social`, …), `display`, `cpm` | — |
+| `email` | `email`, `e-mail`, `newsletter` | webmail: `mail.google.com`, `outlook.live.com`, `outlook.office.com`, `mail.yahoo.com` |
+| `social` | `social`, `social-media`, `organic_social` | `facebook.com`, `instagram.com`, `t.co`, `x.com`, `twitter.com`, `linkedin.com`, `lnkd.in`, `pinterest.*`, `pin.it`, `reddit.com`, `tiktok.com`, `youtube.com`, `threads.net`, `bsky.app` |
+| `search` | `organic` | `google.*`, `bing.com`, `duckduckgo.com`, `yahoo.*`, `ecosia.org`, `baidu.com`, `yandex.*`, `search.brave.com`, `startpage.com` |
+| `referral` | `referral` | any other external site |
+| `campaign` | any other UTM, or UTMs without `utm_medium` | — |
+| `direct` | — | no stored acquisition |
+
+`brand.*` matches the brand under a short country or generic suffix
+(`www.google.co.uk`, `yahoo.co.jp`), not `google.example.com`. The lists are data
+in `src/utm/channel.ts`.
 
 `product_viewed` counts wines the visitor saw, not panels or cards that
 mounted: a one-page site mounts every wine's panel on load, and a shop page
@@ -206,6 +231,59 @@ sends none, because `trackingOptions.ipAddress` is false). Coordinates, postal
 code and DMA aren't sent. No visitor IP is sent to Amplitude or stored. Amplitude
 doesn't document whether these fields win over its own lookup of the request IP,
 so check a staging event's location before relying on it.
+
+## UTM attribution and referrer (`/utm`)
+
+`captureUtmFromLocation()` runs on every page (the site's `UtmCapture.astro`) and
+stores the visitor's **last-touch acquisition** in localStorage: the landing's
+`utm_*` params and its **external referrer's hostname**. `forwardUtmToLinks` and
+the cart's checkout carry the stored UTMs to the store (RULES.md §3); analytics
+reports the whole record on every event.
+
+- **A new touch** is a landing with UTMs or an external referrer. It replaces the
+  stored record wholesale, keeping both when both arrived, so a later Google or
+  press visit replaces last month's email UTMs. A landing with neither (direct,
+  or navigation within the site) keeps the stored record. Records expire after
+  30 days.
+- **The referrer is reduced to its hostname** (lowercase, no path, query or port)
+  and is ignored when it is internal: the page's own host, any host on the same
+  site domain (the last two labels: `www.pacowinery.com` and
+  `store.pacowinery.com` are both `pacowinery.com`), or a configured internal
+  host. The two-label rule ignores the public suffix list, so on a `.co.uk`-style
+  domain every `*.co.uk` site counts as internal; list hosts explicitly there.
+- **Brand hosts on other domains** (a store on the platform's domain, an auth
+  host) must be listed, or a visitor coming back from them reads as a referral
+  and loses their UTMs:
+
+  ```ts
+  configureUtmStorage({
+    storageKey: 'paco_utm_v1', // optional; default pg_utm_v1
+    internalHosts: [EXTERNAL_STORE_ORIGIN], // origins or hostnames
+  });
+  ```
+
+  Each option you pass replaces its current value and the ones you leave out
+  keep theirs, so a later `configureUtmStorage({ storageKey })` (e.g. from
+  `CartRuntime`) doesn't clear `internalHosts`. An entry that is neither a
+  hostname nor an origin throws. Existing `configureUtmStorage({ storageKey })`
+  calls need no change and capture referrers automatically.
+- `document.referrer` is read on the **first capture of a document** only: under
+  the Client Router it keeps the landing's value through client-side
+  navigation, so re-reading it would start a new touch on every page.
+- Stored shape (same key, same TTL): `{ params, referrerDomain?, capturedAt }`,
+  e.g. `{"params":{},"referrerDomain":"www.google.com","capturedAt":"…"}` for a
+  referrer-only touch. Records written before referrer capture (params only)
+  read unchanged; older kits read a referrer-only record as no attribution.
+- Readers: `readStoredUtm()` returns the stored UTM params or null (also null for
+  a referrer-only touch), as before. `readStoredAcquisition()` returns
+  `{ utm, referrerDomain }` (both null when there is none), and
+  `classifyChannel(acquisition)` its channel.
+
+Limitations: in-app browsers (Instagram, Facebook, TikTok) and email apps often
+send no referrer, so without UTMs those visits read as `direct`; tag links you
+control. Google and most sites send only their origin (the default
+`strict-origin-when-cross-origin` policy), which is all the hostname needs, but
+never the search terms.
 
 ## Standard cross-site conventions
 

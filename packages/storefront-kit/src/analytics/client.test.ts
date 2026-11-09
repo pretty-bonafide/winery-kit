@@ -120,13 +120,17 @@ describe('initAnalytics', () => {
     await initialized;
 
     expect(sdk.client.track.mock.calls).toEqual([
-      ['page_viewed', { site: 'paco', path: '/wines' }],
-      ['product_viewed', { site: 'paco', surface: 'page', product_slug: 'cab-2022' }],
+      ['page_viewed', { site: 'paco', channel: 'direct', path: '/wines' }],
+      [
+        'product_viewed',
+        { site: 'paco', channel: 'direct', surface: 'page', product_slug: 'cab-2022' },
+      ],
     ]);
 
     track({ type: 'checkout_started', cartItemCount: 1, cartSubtotalCents: 4500 });
     expect(sdk.client.track).toHaveBeenLastCalledWith('checkout_started', {
       site: 'paco',
+      channel: 'direct',
       cart_item_count: 1,
       cart_subtotal_cents: 4500,
     });
@@ -149,8 +153,56 @@ describe('initAnalytics', () => {
       site: 'paco',
       utm_source: 'ig',
       utm_medium: 'social',
+      channel: 'social',
       path: '/',
     });
+  });
+
+  it('attaches a stored referrer-only acquisition as referrer_domain and channel', async () => {
+    window.localStorage.setItem(
+      DEFAULT_UTM_STORAGE_KEY,
+      JSON.stringify({
+        params: {},
+        referrerDomain: 'www.google.co.uk',
+        capturedAt: new Date().toISOString(),
+      }),
+    );
+    const { initAnalytics, track } = await loadAnalytics();
+
+    await initAnalytics({ apiKey: 'key', site: 'paco' });
+    track({ type: 'product_added_to_cart', productSlug: 'cab-2022', quantity: 1 });
+
+    expect(sdk.client.track).toHaveBeenCalledWith('product_added_to_cart', {
+      site: 'paco',
+      referrer_domain: 'www.google.co.uk',
+      channel: 'search',
+      product_slug: 'cab-2022',
+      quantity: 1,
+    });
+  });
+
+  it('reports the referrer captured on landing (hostname only) on later events', async () => {
+    Object.defineProperty(document, 'referrer', {
+      value: 'https://www.instagram.com/p/abc?igshid=1',
+      configurable: true,
+    });
+    try {
+      const { initAnalytics, track } = await loadAnalytics();
+      const { captureUtmFromLocation } = await import('../utm/storage.js');
+
+      captureUtmFromLocation();
+      await initAnalytics({ apiKey: 'key', site: 'paco' });
+      track({ type: 'page_viewed', path: '/' });
+
+      expect(sdk.client.track).toHaveBeenCalledWith('page_viewed', {
+        site: 'paco',
+        referrer_domain: 'www.instagram.com',
+        channel: 'social',
+        path: '/',
+      });
+    } finally {
+      Reflect.deleteProperty(document, 'referrer');
+    }
   });
 
   it('starts once per page; a second call reuses the first', async () => {
@@ -225,6 +277,7 @@ describe('trackPageView', () => {
 
     expect(sdk.client.track).toHaveBeenCalledWith('page_viewed', {
       site: 'paco',
+      channel: 'direct',
       path: '/wines/cab-2022',
     });
   });
