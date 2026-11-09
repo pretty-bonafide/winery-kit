@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   AMPLITUDE_UPLOAD_URLS,
+  DATACENTER_ASNS,
   decideUploadBody,
   decideUploadHead,
+  trafficClassFrom,
   UPLOAD_LIMIT_BYTES,
   type UploadHead,
   uploadUrlFor,
   visitorLocationFromCf,
   withoutIp,
+  withTrafficClass,
   withVisitorLocation,
 } from './core.js';
 
@@ -19,7 +22,7 @@ const HEAD: UploadHead = {
 };
 
 const bytes = (text: string) => new TextEncoder().encode(text);
-const NOWHERE = { serverZone: 'US', location: {} } as const;
+const NOWHERE = { serverZone: 'US', location: {}, trafficClass: 'human' } as const;
 
 describe('decideUploadHead', () => {
   it('reads the body of a JSON POST, with or without a charset or length', () => {
@@ -74,19 +77,30 @@ describe('uploadUrlFor', () => {
 });
 
 describe('decideUploadBody', () => {
-  it('forwards to the zone URL with location added and ip removed', () => {
+  it('forwards to the zone URL with location and traffic class added and ip removed', () => {
     const decision = decideUploadBody(
       bytes(
         JSON.stringify({ api_key: 'k', events: [{ event_type: 'page_viewed', ip: '$remote' }] }),
       ),
-      { serverZone: 'EU', location: { country: 'Germany', city: 'Berlin' } },
+      {
+        serverZone: 'EU',
+        location: { country: 'Germany', city: 'Berlin' },
+        trafficClass: 'datacenter',
+      },
     );
     expect(decision).toEqual({
       action: 'forward',
       url: AMPLITUDE_UPLOAD_URLS.EU,
       body: JSON.stringify({
         api_key: 'k',
-        events: [{ event_type: 'page_viewed', country: 'Germany', city: 'Berlin' }],
+        events: [
+          {
+            event_type: 'page_viewed',
+            country: 'Germany',
+            city: 'Berlin',
+            event_properties: { traffic_class: 'datacenter' },
+          },
+        ],
       }),
     });
   });
@@ -189,5 +203,187 @@ describe('visitorLocationFromCf', () => {
 
   it.each([undefined, null, 'US'])('is empty for %j', (cf) => {
     expect(visitorLocationFromCf(cf)).toEqual({});
+  });
+});
+
+describe('withTrafficClass', () => {
+  it('adds traffic_class to every event, keeping its other event properties', () => {
+    expect(
+      withTrafficClass(
+        {
+          api_key: 'k',
+          events: [
+            { event_type: 'page_viewed', event_properties: { path: '/', channel: 'direct' } },
+            { event_type: 'checkout_started' },
+          ],
+        },
+        'known_bot',
+      ),
+    ).toEqual({
+      api_key: 'k',
+      events: [
+        {
+          event_type: 'page_viewed',
+          event_properties: { path: '/', channel: 'direct', traffic_class: 'known_bot' },
+        },
+        { event_type: 'checkout_started', event_properties: { traffic_class: 'known_bot' } },
+      ],
+    });
+  });
+
+  it('overwrites a traffic_class the client sent, so it cannot be spoofed', () => {
+    expect(
+      withTrafficClass(
+        { events: [{ event_properties: { traffic_class: 'human', path: '/' } }] },
+        'datacenter',
+      ),
+    ).toEqual({ events: [{ event_properties: { traffic_class: 'datacenter', path: '/' } }] });
+  });
+
+  it.each([null, 'human', ['x']])('replaces event_properties of %j', (eventProperties) => {
+    expect(withTrafficClass({ events: [{ event_properties: eventProperties }] }, 'human')).toEqual({
+      events: [{ event_properties: { traffic_class: 'human' } }],
+    });
+  });
+
+  it.each([
+    ['a payload with no events', { api_key: 'k' }],
+    ['null', null],
+  ])('passes %s through unchanged', (_label, payload) => {
+    expect(withTrafficClass(payload, 'human')).toEqual(payload);
+  });
+
+  it('passes non-object entries through unchanged', () => {
+    expect(withTrafficClass({ events: ['x', null] }, 'human')).toEqual({ events: ['x', null] });
+  });
+});
+
+describe('trafficClassFrom', () => {
+  const BROWSER =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+  const RESIDENTIAL = { asn: 7922, country: 'US' }; // Comcast
+
+  it('is human for a browser on a consumer network', () => {
+    expect(trafficClassFrom({ cf: RESIDENTIAL, userAgent: BROWSER })).toBe('human');
+  });
+
+  it.each([undefined, null, 'US'])('is human for a browser when cf is %j', (cf) => {
+    expect(trafficClassFrom({ cf, userAgent: BROWSER })).toBe('human');
+  });
+
+  describe('verified_bot', () => {
+    it('from botManagement.verifiedBot', () => {
+      expect(
+        trafficClassFrom({ cf: { botManagement: { verifiedBot: true } }, userAgent: BROWSER }),
+      ).toBe('verified_bot');
+    });
+
+    it('from a verifiedBotCategory', () => {
+      expect(
+        trafficClassFrom({
+          cf: { verifiedBotCategory: 'Search Engine Crawler' },
+          userAgent: BROWSER,
+        }),
+      ).toBe('verified_bot');
+    });
+
+    it.each([
+      ['a blank verifiedBotCategory', { verifiedBotCategory: '  ' }],
+      ['verifiedBot false', { botManagement: { verifiedBot: false } }],
+      ['a truthy non-boolean verifiedBot', { botManagement: { verifiedBot: 'true' } }],
+    ])('not from %s', (_label, cf) => {
+      expect(trafficClassFrom({ cf, userAgent: BROWSER })).toBe('human');
+    });
+
+    it('wins over a low score, a bot user agent and a datacenter ASN', () => {
+      expect(
+        trafficClassFrom({
+          cf: { botManagement: { verifiedBot: true, score: 1 }, asn: 16509 },
+          userAgent: 'Googlebot/2.1',
+        }),
+      ).toBe('verified_bot');
+    });
+  });
+
+  describe('known_bot from the Bot Management score', () => {
+    it.each([1, 15, 29])('for score %d', (score) => {
+      expect(trafficClassFrom({ cf: { botManagement: { score } }, userAgent: BROWSER })).toBe(
+        'known_bot',
+      );
+    });
+
+    it.each([0, 30, 99, '5', Number.NaN])('not for score %j', (score) => {
+      expect(trafficClassFrom({ cf: { botManagement: { score } }, userAgent: BROWSER })).toBe(
+        'human',
+      );
+    });
+
+    it('wins over a datacenter ASN', () => {
+      expect(
+        trafficClassFrom({ cf: { botManagement: { score: 2 }, asn: 16509 }, userAgent: BROWSER }),
+      ).toBe('known_bot');
+    });
+  });
+
+  describe('known_bot from the user agent', () => {
+    it.each([
+      'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+      'Mozilla/5.0 (compatible; AhrefsBot/7.0)',
+      'Mozilla/5.0 (compatible; YandexSpider/3.0)',
+      'Mozilla/5.0 (compatible; Yahoo! Slurp)',
+      'ia_archiver crawler',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36',
+      'python-requests/2.31.0',
+      'curl/8.4.0',
+      'Wget/1.21.4',
+      'Go-http-client/2.0',
+      'axios/1.6.0',
+      'node-fetch/1.0',
+      'Puppeteer',
+      'Playwright/1.40',
+      'Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/538.1 PhantomJS/2.1.1 Safari/538.1',
+      'Mozilla/5.0 (Linux; Android 11) Chrome-Lighthouse',
+      'facebookexternalhit/1.1',
+    ])('for %s', (userAgent) => {
+      expect(trafficClassFrom({ cf: RESIDENTIAL, userAgent })).toBe('known_bot');
+    });
+
+    it.each([null, '', '   '])('for a missing or empty user agent %j', (userAgent) => {
+      expect(trafficClassFrom({ cf: RESIDENTIAL, userAgent })).toBe('known_bot');
+    });
+
+    it('not for a CUBOT phone', () => {
+      expect(
+        trafficClassFrom({
+          cf: RESIDENTIAL,
+          userAgent:
+            'Mozilla/5.0 (Linux; Android 10; CUBOT X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
+        }),
+      ).toBe('human');
+    });
+
+    it('wins over a datacenter ASN', () => {
+      expect(trafficClassFrom({ cf: { asn: 16509 }, userAgent: 'curl/8.4.0' })).toBe('known_bot');
+    });
+  });
+
+  describe('datacenter', () => {
+    it.each([...DATACENTER_ASNS])('for ASN %d', (asn) => {
+      expect(trafficClassFrom({ cf: { asn }, userAgent: BROWSER })).toBe('datacenter');
+    });
+
+    it.each([
+      13335, // Cloudflare WARP
+      36183, // Akamai (iCloud Private Relay)
+      54113, // Fastly (iCloud Private Relay)
+      15169, // Google (Google Fi)
+    ])('not for consumer-carrying ASN %d', (asn) => {
+      expect(DATACENTER_ASNS.has(asn)).toBe(false);
+      expect(trafficClassFrom({ cf: { asn }, userAgent: BROWSER })).toBe('human');
+    });
+
+    it('not for an ASN that is not a number', () => {
+      expect(trafficClassFrom({ cf: { asn: '16509' }, userAgent: BROWSER })).toBe('human');
+    });
   });
 });

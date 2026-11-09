@@ -49,7 +49,10 @@ describe('forwardToAmplitude', () => {
     expect(url).toBe('https://api2.amplitude.com/2/httpapi');
     expect(init?.method).toBe('POST');
     expect(init?.headers).toEqual({ 'content-type': 'application/json', accept: '*/*' });
-    expect(JSON.parse(String(init?.body))).toEqual(UPLOAD);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      api_key: 'k',
+      events: [{ event_type: 'page_viewed', event_properties: { traffic_class: 'human' } }],
+    });
   });
 
   it('uses the EU upstream for the EU zone', async () => {
@@ -69,8 +72,65 @@ describe('forwardToAmplitude', () => {
     );
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
       api_key: 'k',
-      events: [{ event_type: 'x', country: 'United States', region: 'California', city: 'Napa' }],
+      events: [
+        {
+          event_type: 'x',
+          country: 'United States',
+          region: 'California',
+          city: 'Napa',
+          event_properties: { traffic_class: 'known_bot' }, // no user agent
+        },
+      ],
     });
+  });
+
+  it('classifies from request.cf and the user agent, overwriting a spoofed value and forwarding neither', async () => {
+    const userAgent =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+    const send = async (cf: unknown, ua: string) => {
+      const fetch = amplitudeReplying(200, '{}');
+      await forwardToAmplitude(
+        upload({
+          headers: { 'content-type': 'application/json', 'user-agent': ua },
+          body: JSON.stringify({
+            api_key: 'k',
+            events: [
+              {
+                event_type: 'page_viewed',
+                event_properties: { path: '/', traffic_class: 'human' },
+              },
+            ],
+          }),
+          cf,
+        }),
+        { fetch },
+      );
+      return String(fetch.mock.calls[0]?.[1]?.body);
+    };
+
+    const datacenter = await send({ asn: 16509, country: 'US' }, userAgent);
+    expect(JSON.parse(datacenter).events[0].event_properties).toEqual({
+      path: '/',
+      traffic_class: 'datacenter',
+    });
+    expect(datacenter).not.toContain('16509');
+    expect(datacenter).not.toContain('asn');
+    expect(datacenter).not.toContain('Safari');
+    expect(datacenter).not.toContain('user_agent');
+
+    const bot = await send({ asn: 7922 }, 'curl/8.4.0');
+    expect(JSON.parse(bot).events[0].event_properties.traffic_class).toBe('known_bot');
+    expect(bot).not.toContain('curl');
+
+    const verified = await send(
+      { asn: 15169, verifiedBotCategory: 'Search Engine Crawler' },
+      userAgent,
+    );
+    expect(JSON.parse(verified).events[0].event_properties.traffic_class).toBe('verified_bot');
+    expect(verified).not.toContain('Crawler');
+
+    const human = await send({ asn: 7922 }, userAgent);
+    expect(JSON.parse(human).events[0].event_properties.traffic_class).toBe('human');
   });
 
   it("passes Amplitude's error status and body through", async () => {
