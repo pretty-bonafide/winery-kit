@@ -3,7 +3,7 @@
 Status: canonical
 Owner: Pretty Good engineering
 Applies to: every winery site
-Last verified: 2026-10-08
+Last verified: 2026-11-13
 Update trigger: an invariant is added, changed or retired, or a site is added.
 
 Non-negotiable rules every Pretty Good winery site must follow. These are
@@ -41,6 +41,26 @@ Concretely:
 - **The cart island is the only Store API client.** It fetches commerce data
   client-side from the CMS-held join key + required public config, and degrades
   to the designed anonymous/unavailable state on runtime data failures.
+
+**The one exception: the Wine-Searcher datafeed.** A site may serve a
+Wine-Searcher feed (`/winesearcher-feed.txt`) that reads the Store API
+server-side, because the feed's prices must be live and only the platform owns
+them. The exception covers that one route and nothing else. No page, sitemap or
+other endpoint may use it as a precedent; a new case needs a new, named exception
+here. Within the route:
+
+- **One owner per field still holds.** The CMS owns what is listed and how it
+  is described (name, vintage, product-page URL, image, join key). The Store API
+  owns SKU, price, unit size, stock and availability. Nothing falls back across
+  sources.
+- **On demand, never prerendered**, so a crawl never gets a stale price.
+- **Public reads only**: the publishable key, sent with the site's own origin.
+  No secret or customer-scoped call.
+- **List purchasable wines only.** A variation goes in only when anonymous
+  `/availability` reports it `purchasable`.
+- **Fail fast, never partial.** If a Store API read fails, or a CMS wine's join
+  key has no product, the route answers `503`. An empty or partial feed would
+  remove the winery's listings (Rule 5).
 
 ## 2. No CMS-masking fallbacks
 
