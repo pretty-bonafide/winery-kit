@@ -126,6 +126,36 @@ describe('cartStore — local-first', () => {
     expect(s.isMutating).toBe(false);
   });
 
+  it('captions a just-added bundle with what the server says it holds, keeping the local line', async () => {
+    const components = [
+      { title: '2024 Roussanne', quantity: 3 },
+      { title: '2024 Garnacha', quantity: 3 },
+    ];
+    const serverCart = snapshot('cart', [
+      {
+        id: 'srv-1',
+        productId: 'p-cab',
+        purchaseOptionId: 'v-cab',
+        title: '2022 Cabernet',
+        quantity: 1,
+        unitPrice: 4500,
+        components,
+      },
+    ]);
+    cartStore.configure({
+      adapter: stubAdapter({ addItem: async () => serverCart }),
+      initialCart: EMPTY,
+    });
+
+    await cartStore.addItem(cab);
+    await flushDebouncedCartWork();
+
+    const s = cartStore.getSnapshot();
+    expect(s.cart?.lines).toHaveLength(1);
+    expect(s.cart?.lines[0].id).toBe(OPTIMISTIC_CAB_ID);
+    expect(s.cart?.lines[0].components).toEqual(components);
+  });
+
   it('merges fresh promotion data from successful background writes', async () => {
     const serverCart = {
       ...serverCabCart,

@@ -101,9 +101,13 @@ describe('normalizeStorefrontCartResponse bundles', () => {
   });
 
   it('keeps the caption per ONE bundle when the shopper changes the quantity', () => {
-    expect(normalize(bundleCart(1)).lines[0]?.components).toEqual(
-      normalize(bundleCart(5)).lines[0]?.components,
-    );
+    const perBundle = [
+      { title: '2024 Roussanne', quantity: 3 },
+      { title: '2024 Garnacha', quantity: 3 },
+    ];
+
+    expect(normalize(bundleCart(1)).lines[0]?.components).toEqual(perBundle);
+    expect(normalize(bundleCart(5)).lines[0]?.components).toEqual(perBundle);
   });
 
   it('treats an item with no parentItemId as a line, for a server that predates components', () => {
