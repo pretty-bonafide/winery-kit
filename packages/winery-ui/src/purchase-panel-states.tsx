@@ -16,7 +16,16 @@ export type PurchaseStateRenderer = (view: PurchasePanelView) => ReactNode;
 export interface RetailStateRenderers {
   purchasable: PurchaseStateRenderer;
   inCart: PurchaseStateRenderer;
+  /** Not purchasable for a reason that is not the visitor's permission (a
+   * used-up cap). */
   unavailable: PurchaseStateRenderer;
+  /** The platform says an anonymous visitor may not buy this wine and no
+   * request path is open: the members sentence, a sign-in action and the
+   * waiting-list CTA. Says nothing about why the wine is not public. */
+  membersOnly: PurchaseStateRenderer;
+  /** The same denial for a signed-in customer: not-allocated copy plus the
+   * waiting-list CTA, no sign-in action. */
+  notAllocated: PurchaseStateRenderer;
   /** Entitlement-gated wine on the public catalog (offer-level `restricted`
    * input): scarcity-first communication, never an enabled purchase CTA. */
   restricted: PurchaseStateRenderer;
@@ -39,10 +48,7 @@ export interface AllocationStateRenderers {
 }
 
 export type PurchasePanelStatesProps =
-  | ({ lens?: 'retail' } & RetailStateRenderers & {
-      membersOnly?: undefined;
-      notAllocated?: undefined;
-    })
+  | ({ lens?: 'retail' } & RetailStateRenderers)
   | ({ lens: 'allocation' } & AllocationStateRenderers & {
       unavailable?: undefined;
       restricted?: undefined;

@@ -40,6 +40,7 @@ import { createStorefrontAuthClient } from '../storefront-api/auth.js';
 import type { StorefrontApiConfig } from '../storefront-api/config.js';
 import type {
   CustomerMembership,
+  CustomerPurchaseContext,
   QuantityLimit,
   VariationAvailability,
   VariationPricing,
@@ -62,6 +63,13 @@ const DEFAULT_ADD_LABELS = {
 
 export type PurchasePanelAddLabels = typeof DEFAULT_ADD_LABELS;
 
+/** The visitor's session as the SITE knows it. Supplied by sites whose sign-in
+ * is not visible to the platform's own session endpoint (a code-exchange
+ * session held in the site's cookie). `pending` until the site's read ends. */
+export interface PurchasePanelSession {
+  status: 'pending' | 'anonymous' | 'authenticated';
+}
+
 export interface UsePurchasePanelOptions {
   /** Present only when the public storefront API is configured — gates the
    * client-side product read, the session read, and the credentialed
@@ -77,8 +85,22 @@ export interface UsePurchasePanelOptions {
   unitNoun?: string;
   /** Default: retail. */
   lens?: PurchaseLens;
-  /** Allocation lens: where the members-only CTA sends the visitor. */
+  /** Where the members-only / not-allocated CTA sends the visitor. The
+   * allocation lens defaults it; the retail lens shows the CTA only when set. */
   waitingListHref?: string;
+  /** Where the members-only state's SIGN IN action goes — the site's login
+   * start. Omitted → no sign-in action. */
+  signInHref?: string;
+  /** Base for the credentialed purchase-context read — the site's same-origin
+   * proxy, which attaches the signed-in customer's token server-side. Omitted
+   * → `storefrontApi`, as before. */
+  customerContextApi?: StorefrontApiConfig;
+  /** The visitor's session, from the site. When PROVIDED it is the only source
+   * of "signed in" on both lenses (the allocation lens's direct platform session
+   * read is skipped), and the purchase-context read waits until it is not
+   * `pending`, so an answer is never read before the session is known. When
+   * omitted, the panel behaves exactly as before. */
+  session?: PurchasePanelSession;
   /** Club-discount marketing facts (site/CMS-supplied, pre-formatted), shown
    * to non-members on purchasable PDPs. Omit when the brand runs no club
    * discounts — the panel renders nothing for it. */
@@ -137,6 +159,28 @@ export interface UsePurchasePanelResult {
   viewRef: (node: Element | null) => void;
 }
 
+// One purchase-context read: the failure policy lives here, the state setting
+// stays with the caller.
+function readCustomerContext(
+  config: StorefrontApiConfig,
+  variationIds: string[],
+  lens: PurchaseLens,
+  apply: (context: CustomerPurchaseContext | null) => void,
+): Promise<void> {
+  return createCustomerContextClient(config)
+    .fetchPurchaseContext(variationIds)
+    .then((context) => {
+      if (context == null && lens === 'allocation') {
+        // Without affirmative data the view model degrades to members-only
+        // rather than asserting "Not in your current allocation".
+        console.error(
+          'usePurchasePanel: purchase context unavailable — member sees the members-only state.',
+        );
+      }
+      apply(context);
+    });
+}
+
 // Stable identity for the pending/empty case so the view useMemo doesn't churn
 // on every render before the product resolves.
 const NO_VARIATIONS: StorefrontProductVariation[] = [];
@@ -151,6 +195,9 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     unitNoun = 'bottle',
     lens = 'retail',
     waitingListHref,
+    signInHref,
+    customerContextApi,
+    session,
     clubUpsell,
     restricted,
     publicQuantityLimit,
@@ -158,6 +205,8 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     requestHref,
     alternativeCandidates,
   } = options;
+  const hasSiteSession = session !== undefined;
+  const sessionStatus = session?.status;
   const labels = { ...DEFAULT_ADD_LABELS, ...options.labels };
 
   const { cart, isMutating } = useCartStore();
@@ -166,7 +215,12 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
   // a silently-inert pre-hydration button into a visibly-disabled one.
   const [isHydrated, setIsHydrated] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isDirectlyAuthenticated, setIsAuthenticated] = useState(false);
+  // With a site session, the variations the context read waits to ask about.
+  const [contextVariationIds, setContextVariationIds] = useState<string[] | null>(null);
+  const isAuthenticated = hasSiteSession
+    ? sessionStatus === 'authenticated'
+    : isDirectlyAuthenticated;
   const [pricing, setPricing] = useState<VariationPricing[] | null>(null);
   const [availability, setAvailability] = useState<VariationAvailability[] | null>(null);
   const [memberships, setMemberships] = useState<CustomerMembership[] | null>(null);
@@ -181,7 +235,7 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     setIsHydrated(true);
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: slug/cartSeed/storefrontApi/lens are page-render constants.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: slug/cartSeed/storefrontApi/customerContextApi/lens/hasSiteSession are page-render constants.
   useEffect(() => {
     // Unconfigured commerce: synthesize the mock resolution from the CMS seed
     // alone — no storefront read, and no purchase context to layer on.
@@ -193,22 +247,17 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     let cancelled = false;
 
     function fetchCustomerContext(variationIds: string[]) {
-      const client = createCustomerContextClient(storefrontApi as StorefrontApiConfig);
-
-      void client.fetchPurchaseContext(variationIds).then((context) => {
-        if (context == null && lens === 'allocation') {
-          // Without affirmative data the view model degrades to members-only
-          // rather than asserting "Not in your current allocation".
-          console.error(
-            'usePurchasePanel: purchase context unavailable — member sees the members-only state.',
-          );
-        }
-        if (!cancelled) {
+      void readCustomerContext(
+        customerContextApi ?? (storefrontApi as StorefrontApiConfig),
+        variationIds,
+        lens,
+        (context) => {
+          if (cancelled) return;
           setPricing(context?.pricing ?? null);
           setAvailability(context?.availability ?? null);
           setMemberships(context?.memberships ?? null);
-        }
-      });
+        },
+      );
     }
 
     // Self-fetch the storefront product from the CMS join key + public config
@@ -224,7 +273,10 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       if (resolved.variations.length === 0) return;
 
       const variationIds = resolved.variations.map((variation) => variation.id);
-      if (lens === 'allocation') {
+      if (hasSiteSession) {
+        // The context read waits for the site's session (the effect below).
+        setContextVariationIds(variationIds);
+      } else if (lens === 'allocation') {
         const auth = createStorefrontAuthClient(storefrontApi as StorefrontApiConfig);
         auth
           .getSession()
@@ -248,6 +300,32 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       cancelled = true;
     };
   }, []);
+
+  // With a site session: the purchase-context read, once the product has given
+  // its variations AND the session is known, so an answer is never read before
+  // it. The allocation lens only reads for a signed-in visitor (an anonymous
+  // read would come back empty anyway).
+  useEffect(() => {
+    if (!hasSiteSession || !storefrontApi || contextVariationIds === null) return;
+    if (sessionStatus === 'pending') return;
+    if (lens === 'allocation' && sessionStatus !== 'authenticated') return;
+
+    let cancelled = false;
+    void readCustomerContext(
+      customerContextApi ?? storefrontApi,
+      contextVariationIds,
+      lens,
+      (context) => {
+        if (cancelled) return;
+        setPricing(context?.pricing ?? null);
+        setAvailability(context?.availability ?? null);
+        setMemberships(context?.memberships ?? null);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSiteSession, storefrontApi, customerContextApi, contextVariationIds, sessionStatus, lens]);
 
   // product_viewed (surface `page`) once the site-attached element has been on
   // screen and the product has resolved, live or mock.
@@ -313,6 +391,7 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
         lens,
         isAuthenticated,
         waitingListHref,
+        signInHref,
         pricing,
         availability,
         memberships,
@@ -344,6 +423,7 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       requestHref,
       restricted,
       selectedId,
+      signInHref,
       unitNoun,
       variations,
       waitingListHref,

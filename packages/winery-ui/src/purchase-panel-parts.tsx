@@ -4,7 +4,7 @@
 // placement, element type (`as`), and styling (`className`) — never the
 // wiring: every string a part renders was pre-formatted by the kit's view
 // model, so pricing and entitlement policy cannot be re-derived in brand code.
-import type { ElementType, ReactNode } from 'react';
+import type { AnchorHTMLAttributes, ElementType, ReactNode } from 'react';
 import type {
   PurchaseFormatView,
   PurchaseOptionValueView,
@@ -211,8 +211,8 @@ export function CartNote({
   );
 }
 
-/** Waiting-list anchor — renders only in the members-only state, and is
- * never an enabled purchase CTA. */
+/** Waiting-list anchor — renders in the members-only state (and for a retail
+ * visitor with no permission), and is never an enabled purchase CTA. */
 export function WaitingListCta({
   className,
   children,
@@ -225,6 +225,27 @@ export function WaitingListCta({
   return (
     <a href={view.waitingListCta.href} className={className}>
       {children ?? view.waitingListCta.label}
+    </a>
+  );
+}
+
+/** Sign-in anchor — renders only in the members-only state, for a visitor who
+ * is not signed in, when the site supplied `signInHref`. Extra anchor
+ * attributes pass through (an Astro site sets `data-astro-prefetch` and
+ * `data-astro-reload` on its login endpoint). Never a purchase CTA. */
+export function SignInCta({
+  className,
+  children,
+  ...anchorProps
+}: {
+  className?: string;
+  children?: ReactNode;
+} & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href' | 'className' | 'children'>) {
+  const { view } = usePurchasePanelContext();
+  if (!view.signInCta) return null;
+  return (
+    <a {...anchorProps} href={view.signInCta.href} className={className}>
+      {children ?? view.signInCta.label}
     </a>
   );
 }
