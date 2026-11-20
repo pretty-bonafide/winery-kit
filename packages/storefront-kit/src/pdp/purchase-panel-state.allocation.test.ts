@@ -156,6 +156,26 @@ describe('buildPurchasePanelView', () => {
     expect(view.canPurchase).toBe(false);
   });
 
+  it('offers SIGN IN on members-only only to a visitor who is not signed in, and only when wired', () => {
+    const base = {
+      lens: 'allocation',
+      variations: [BOTTLE],
+      signInHref: '/api/auth/login',
+    } as const;
+
+    expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).signInCta).toEqual({
+      label: 'SIGN IN',
+      href: '/api/auth/login',
+    });
+    expect(
+      buildPurchasePanelView({ lens: 'allocation', variations: [BOTTLE] }).signInCta,
+    ).toBeUndefined();
+    expect(
+      buildPurchasePanelView({ ...base, isAuthenticated: true, memberships: [], availability: [] })
+        .signInCta,
+    ).toBeUndefined();
+  });
+
   it('renders the purchasable state for a member with the wine in their allocation', () => {
     const view = buildPurchasePanelView({
       lens: 'allocation',
