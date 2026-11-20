@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CartSnapshot } from '../cart/cart-types.js';
+import { CartRequestError, type CartSnapshot } from '../cart/cart-types.js';
 import type { StorefrontProduct } from '../storefront-api/products.js';
 import { type UsePurchasePanelOptions, usePurchasePanel } from './use-purchase-panel.js';
 
@@ -151,7 +151,19 @@ describe('usePurchasePanel without a site session (the 0.7.1 behaviour)', () => 
     expect(mocks.fetchContext).toHaveBeenCalledTimes(1);
     expect(mocks.contextConfigs).toEqual([DIRECT]);
     expect(mocks.directSession).not.toHaveBeenCalled();
-    expect(panel.result.current.view.state).toBe('members-only');
+    // Without a site session who is signed in is unknown: a denial is unavailable.
+    expect(panel.result.current.view.state).toBe('unavailable');
+    expect(panel.result.current.view.signInCta).toBeUndefined();
+    expect(panel.result.current.addDisabled).toBe(true);
+  });
+
+  it('enables the buy button as soon as the product resolves when nothing denies it', async () => {
+    mocks.fetchContext.mockReturnValue(new Promise(() => {}));
+    const panel = mount({ signInHref: '/api/auth/login' });
+    await panel.render();
+
+    expect(panel.result.current.addDisabled).toBe(false);
+    expect(panel.result.current.view.signInCta).toBeUndefined();
   });
 
   it('gates the allocation lens on its own direct session read', async () => {
@@ -216,5 +228,117 @@ describe('usePurchasePanel with a site session', () => {
     expect(mocks.fetchContext).not.toHaveBeenCalled();
     expect(mocks.directSession).not.toHaveBeenCalled();
     expect(panel.result.current.view.state).toBe('members-only');
+  });
+});
+
+const deferred = <T>() => {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+};
+
+describe('usePurchasePanel with a site session: the buy button waits for the answer', () => {
+  it('stays pending while the session is pending, then until the first read settles', async () => {
+    const read = deferred<unknown>();
+    mocks.fetchContext.mockReturnValue(read.promise);
+    const panel = mount({ session: { status: 'pending' } });
+    await panel.render();
+    expect(panel.result.current.addDisabled).toBe(true);
+
+    await panel.update({ session: { status: 'anonymous' } });
+    expect(mocks.fetchContext).toHaveBeenCalledTimes(1);
+    expect(panel.result.current.addDisabled).toBe(true);
+
+    await act(async () => read.resolve(MEMBER_CONTEXT));
+    expect(panel.result.current.addDisabled).toBe(false);
+    expect(panel.result.current.view.state).toBe('purchasable');
+  });
+
+  it('shows a visitor the platform denies no enabled button, before or after the answer', async () => {
+    const read = deferred<unknown>();
+    mocks.fetchContext.mockReturnValue(read.promise);
+    const panel = mount({ session: { status: 'anonymous' } });
+    await panel.render();
+    expect(panel.result.current.addDisabled).toBe(true);
+
+    await act(async () => read.resolve(DENIED_CONTEXT));
+    expect(panel.result.current.view.state).toBe('members-only');
+    expect(panel.result.current.addDisabled).toBe(true);
+  });
+
+  it('fails open when the first read fails: the button is enabled, the platform still refuses the add', async () => {
+    mocks.fetchContext.mockResolvedValue(null);
+    const panel = mount({ session: { status: 'anonymous' } });
+    await panel.render();
+
+    expect(panel.result.current.view.state).toBe('purchasable');
+    expect(panel.result.current.addDisabled).toBe(false);
+  });
+});
+
+describe('usePurchasePanel with a site session: a visitor change starts from nothing', () => {
+  it('drops the previous customer on retail before the new read lands', async () => {
+    mocks.fetchContext.mockResolvedValueOnce(MEMBER_CONTEXT);
+    const panel = mount({ session: { status: 'authenticated' } });
+    await panel.render();
+    expect(panel.result.current.view.memberBadge).toBe('SIGNED IN · CLUB');
+    expect(panel.result.current.view.state).toBe('purchasable');
+
+    const next = deferred<unknown>();
+    mocks.fetchContext.mockReturnValueOnce(next.promise);
+    await panel.update({ session: { status: 'anonymous' } });
+
+    expect(panel.result.current.view.memberBadge).toBeUndefined();
+    expect(panel.result.current.addDisabled).toBe(true);
+
+    await act(async () => next.resolve(DENIED_CONTEXT));
+    expect(panel.result.current.view.state).toBe('members-only');
+  });
+
+  it('drops the member on the allocation lens when the visitor is no longer authenticated, with no re-read', async () => {
+    mocks.fetchContext.mockResolvedValue(MEMBER_CONTEXT);
+    const panel = mount({ lens: 'allocation', session: { status: 'authenticated' } });
+    await panel.render();
+    expect(panel.result.current.view.state).toBe('purchasable');
+
+    await panel.update({ session: { status: 'anonymous' } });
+
+    expect(panel.result.current.view.state).toBe('members-only');
+    expect(panel.result.current.view.memberBadge).toBeUndefined();
+    expect(mocks.fetchContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a cart-error quantity limit cached for the previous visitor', async () => {
+    mocks.fetchContext.mockResolvedValue(MEMBER_CONTEXT);
+    mocks.cartStore.addItem.mockRejectedValueOnce(
+      new CartRequestError({
+        code: 'allocation_exceeded',
+        message: 'limit',
+        quantityLimit: { limit: 6, redeemed: 6, available: 0 },
+      }),
+    );
+    const panel = mount({ session: { status: 'authenticated' } });
+    await panel.render();
+    await act(async () => panel.result.current.submitAddToCart());
+    expect(panel.result.current.view.canIncrement).toBe(false);
+
+    await panel.update({ session: { status: 'anonymous' } });
+
+    expect(panel.result.current.view.canIncrement).toBe(true);
+  });
+});
+
+describe('usePurchasePanel with a site session: config objects are compared by value', () => {
+  it('reads once when a caller rebuilds equal config objects on every render', async () => {
+    const panel = mount({ session: { status: 'anonymous' }, customerContextApi: { ...PROXY } });
+    await panel.render();
+    for (let i = 0; i < 3; i += 1) {
+      await panel.update({
+        storefrontApi: { ...DIRECT },
+        customerContextApi: { ...PROXY },
+      });
+    }
+
+    expect(mocks.fetchContext).toHaveBeenCalledTimes(1);
   });
 });
