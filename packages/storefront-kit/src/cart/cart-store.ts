@@ -309,9 +309,11 @@ function adoptServerLineId(input: AddToCartInput, serverCart: CartSnapshot) {
   if (!serverLine) return false;
   serverLineIds.set(optId, serverLine.id);
   optimisticInputs.delete(optId);
+  // Fills a displayed line that has no caption yet and never replaces one, so
+  // a response that arrives late cannot change what the cart already shows.
   const { components } = serverLine;
   const { cart } = state;
-  if (components && cart?.lines.some((line) => line.id === optId)) {
+  if (components && cart?.lines.some((line) => line.id === optId && !line.components)) {
     setState({
       cart: {
         ...cart,
