@@ -310,8 +310,8 @@ function adoptServerLineId(input: AddToCartInput, serverCart: CartSnapshot) {
   serverLineIds.set(optId, serverLine.id);
   optimisticInputs.delete(optId);
   const { components } = serverLine;
-  if (components) {
-    const cart = currentCart();
+  const { cart } = state;
+  if (components && cart?.lines.some((line) => line.id === optId)) {
     setState({
       cart: {
         ...cart,
