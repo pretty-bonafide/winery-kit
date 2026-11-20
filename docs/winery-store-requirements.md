@@ -234,11 +234,24 @@ test suites) and `winery-kit/packages/winery-ui` (PurchasePanel compound API);
 
 **Cart contract** (normalized across adapters)
 - `CartSnapshot`: `{ id, currency: 'USD', itemCount, subtotal (cents), checkoutUrl, lines, updatedAt }`
-- `CartLine`: `{ id, productId, purchaseOptionId?, variantId?, sku?, title, quantity, unitPrice (cents), imageUrl? }`
+- `CartLine`: `{ id, productId, purchaseOptionId?, variantId?, sku?, title, quantity, unitPrice (cents), imageUrl?, components? }`
+- **Bundles.** `GET /carts/current` returns a flat `items` list. A fixed bundle (a box of
+  wines sold as one product) is ONE item with `parentItemId: null`, the bundle's own name,
+  price and quantity, and a `components` array; each wine inside it also appears in `items`
+  as a `kind: "component"` item whose `parentItemId` is the bundle item's id and whose
+  quantity is the bundle's quantity × its count per bundle. The kit keeps only items with a
+  null (or absent) `parentItemId` as lines, so a bundle counts once per unit in `itemCount`
+  and the subtotal, and a wine that is only inside a bundle is not "in cart" on its own
+  page. `CartLine.components` is `{ title, quantity }[]`, the quantity per ONE bundle,
+  read from the bundle item's `components`; a `components` the kit cannot read leaves the
+  line without it, never without the cart.
 
 **Sidebar behavior**
 - Opens automatically on add-to-cart success; stays open on errors with a retry affordance.
 - Quantity update and line removal mutate via the adapter and re-render from the returned snapshot.
+- A bundle line shows `Includes: <wine> × <count per bundle> · …` under its name
+  (`CartLine.components`, `bundleIncludesCaption`); a site rewords it with the sidebar's
+  `includesCaption` prop. Its stepper and Remove act on the bundle line like any other.
 - Errors render inline in the sidebar (typed error payload, see §9); recoverable errors keep
   buttons enabled for retry.
 
@@ -327,10 +340,12 @@ sites; new sites use session auth only.
 
 ```
 POST   /carts                        create anonymous cart → { cartToken, draftId }
-GET    /carts/current                read cart (X-Cart-Token)
+GET    /carts/current                read cart (X-Cart-Token); flat `items`, bundle wines are
+                                     `kind: "component"` items under their bundle (see §5)
 POST   /carts/current/items          add { productVariationId, quantity }
 PATCH  /carts/current/items/:id      update { quantity }
-DELETE /carts/current/items/:id      remove line
+DELETE /carts/current/items/:id      remove line (a component item answers 400
+                                     `component_line_fixed`; the kit never targets one)
 POST   /checkout/session             start checkout { utm? } → { checkoutUrl, sessionId }
 GET    /products/:slug               product + variations + prices
 POST   /purchase-context             pricing + customer availability + memberships (credentialed PDP read)
@@ -355,6 +370,7 @@ POST   /auth/token                   code exchange + refresh (site server, secre
 | `data.reason: exceeds_limit` (carries `data.quantityLimit`) | `allocation_exceeded` |
 | `data.reason: insufficient_stock` or `out_of_stock` | `item_unavailable` |
 | `data.reason: invalid_request` | `invalid_quantity` |
+| `data.reason: component_line_fixed` (PATCH/DELETE on a bundle's component item) | not mapped: the kit only holds the bundle line, so it never sends this; if it arrives, the platform's message ("Change or remove the bundle instead.") shows verbatim |
 | checkout 4xx / validation failure | `checkout_unavailable` |
 | network/other | `cart_request_failed` |
 

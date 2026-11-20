@@ -339,6 +339,14 @@ variation IDs against `CartSnapshot.lines[].purchaseOptionId`, which is normaliz
 router test** — cart lines keep exposing `productVariationId`. Quantity changes
 from the PDP stepper reuse `PATCH /carts/current/items/{itemId}`.
 
+A fixed bundle product changes what "a cart line" means on that read: the bundle is
+one item (`parentItemId: null`, with a `components` array), and each wine inside it
+also appears in the flat `items` as a `kind: "component"` item whose `parentItemId`
+is the bundle item's id. Only items with a null (or absent) `parentItemId` are cart
+lines, so a wine that is only inside a bundle does not read as in cart. The platform
+answers `PATCH`/`DELETE` on a component item with 400 `data.reason:
+"component_line_fixed"`: a component changes and leaves only with its bundle line.
+
 ### M7 — Combined customer-context read: `POST /purchase-context` (shipped)
 
 The PDP island now uses one credentialed request per page instead of separately

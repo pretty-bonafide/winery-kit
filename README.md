@@ -103,7 +103,7 @@ pnpm build-storybook  # static build → storybook-static/ (gitignored)
 
 Stories live outside `src/` (in `stories/`) so they're never compiled into
 `dist`. `CartSidebar.stories.tsx` covers every state (empty, discounted,
-wishlist mix, wishlist-only, processing, error) and renders the pure
+wishlist mix, wishlist-only, bundle, processing, error) and renders the pure
 `CartSidebarView`, so no cart store is needed. Flip the `themeName` control — or
 open a `Theme…` story — to preview any state across the reference themes in
 `src/react/cart-sidebar-example-themes.ts` (`noir`, `cellar`, `terracotta`,
