@@ -302,7 +302,7 @@ describe('buildPurchasePanelView', () => {
       const view = buildPurchasePanelView({
         variations: [BOTTLE],
         availability: DENIED,
-        isAuthenticated: false,
+        visitor: 'anonymous',
         waitingListHref: '/membership',
         signInHref: '/api/auth/login',
       });
@@ -326,7 +326,7 @@ describe('buildPurchasePanelView', () => {
       const view = buildPurchasePanelView({
         variations: [BOTTLE],
         availability: DENIED,
-        isAuthenticated: true,
+        visitor: 'signed-in',
         waitingListHref: '/membership',
         signInHref: '/api/auth/login',
       });
@@ -346,7 +346,7 @@ describe('buildPurchasePanelView', () => {
       const anonymous = buildPurchasePanelView({
         variations: [BOTTLE],
         availability: DENIED,
-        isAuthenticated: false,
+        visitor: 'anonymous',
       });
       expect(anonymous.state).toBe('members-only');
       expect(anonymous.signInCta).toBeUndefined();
@@ -355,7 +355,7 @@ describe('buildPurchasePanelView', () => {
       const signedIn = buildPurchasePanelView({
         variations: [BOTTLE],
         availability: DENIED,
-        isAuthenticated: true,
+        visitor: 'signed-in',
       });
       expect(signedIn.state).toBe('not-allocated');
       expect(signedIn.waitingListCta).toBeUndefined();
@@ -376,11 +376,26 @@ describe('buildPurchasePanelView', () => {
       expect(view.membersOnlyNote).toBeUndefined();
     });
 
+    it('does not read the 0.7.1 isAuthenticated input: a 0.7.1 caller still gets unavailable', () => {
+      for (const isAuthenticated of [false, true]) {
+        const view = buildPurchasePanelView({
+          variations: [BOTTLE],
+          availability: DENIED,
+          isAuthenticated,
+          signInHref: '/api/auth/login',
+          waitingListHref: '/membership',
+        });
+        expect(view.state).toBe('unavailable');
+        expect('signInCta' in view).toBe(false);
+        expect(view.waitingListCta).toBeUndefined();
+      }
+    });
+
     it('offers SIGN IN only to a visitor known to be signed out', () => {
       const base = { variations: [BOTTLE], availability: DENIED, signInHref: '/api/auth/login' };
-      expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).signInCta).toBeDefined();
+      expect(buildPurchasePanelView({ ...base, visitor: 'anonymous' }).signInCta).toBeDefined();
       expect(buildPurchasePanelView(base).signInCta).toBeUndefined();
-      expect(buildPurchasePanelView({ ...base, isAuthenticated: true }).signInCta).toBeUndefined();
+      expect(buildPurchasePanelView({ ...base, visitor: 'signed-in' }).signInCta).toBeUndefined();
     });
 
     it('does not read a named grant as a used-up allocation for a retail denial', () => {
@@ -391,18 +406,18 @@ describe('buildPurchasePanelView', () => {
         buildPurchasePanelView({
           variations: [BOTTLE],
           availability: granted,
-          isAuthenticated: true,
+          visitor: 'signed-in',
         }).unavailableNote,
       ).toBe('Not in your current allocation');
     });
 
     it('keeps an open request path ahead of it, for either visitor', () => {
       const requestable: VariationAvailability[] = [{ ...DENIED[0], canAddToWishlist: true }];
-      for (const isAuthenticated of [false, true]) {
+      for (const visitor of ['anonymous', 'signed-in'] as const) {
         const view = buildPurchasePanelView({
           variations: [BOTTLE],
           availability: requestable,
-          isAuthenticated,
+          visitor,
           signInHref: '/api/auth/login',
           waitingListHref: '/membership',
         });
@@ -413,12 +428,12 @@ describe('buildPurchasePanelView', () => {
     });
 
     it('keeps an explicit restricted input on the restricted state', () => {
-      for (const isAuthenticated of [false, true]) {
+      for (const visitor of ['anonymous', 'signed-in'] as const) {
         const view = buildPurchasePanelView({
           variations: [BOTTLE],
           availability: DENIED,
           restricted: true,
-          isAuthenticated,
+          visitor,
           signInHref: '/api/auth/login',
         });
         expect(view.state).toBe('restricted');
@@ -427,16 +442,16 @@ describe('buildPurchasePanelView', () => {
     });
 
     it('keeps a used-up cap unavailable, even when the permission also reads denied', () => {
-      for (const isAuthenticated of [false, true]) {
+      for (const visitor of ['anonymous', 'signed-in'] as const) {
         expect(
           buildPurchasePanelView({
             variations: [BOTTLE],
             availability: EXHAUSTED_AVAILABILITY,
-            isAuthenticated,
+            visitor,
             signInHref: '/api/auth/login',
             waitingListHref: '/membership',
           }),
-        ).toMatchObject({ state: 'unavailable', signInCta: undefined, waitingListCta: undefined });
+        ).toMatchObject({ state: 'unavailable', waitingListCta: undefined });
 
         const capAndDenied: VariationAvailability[] = [
           { ...DENIED[0], quantityLimit: { limit: 6, redeemed: 6, available: 0 } },
@@ -445,7 +460,7 @@ describe('buildPurchasePanelView', () => {
           buildPurchasePanelView({
             variations: [BOTTLE],
             availability: capAndDenied,
-            isAuthenticated,
+            visitor,
           }).state,
         ).toBe('unavailable');
       }
@@ -459,22 +474,22 @@ describe('buildPurchasePanelView', () => {
         buildPurchasePanelView({
           variations: [BOTTLE],
           availability: blocked,
-          isAuthenticated: false,
+          visitor: 'anonymous',
         }).state,
       ).toBe('members-only');
     });
 
     it('keeps a sold-out wine unavailable, for either visitor', () => {
       const soldOut: VariationAvailability[] = [{ ...DENIED[0], status: 'sold_out' }];
-      for (const isAuthenticated of [false, true]) {
+      for (const visitor of ['anonymous', 'signed-in'] as const) {
         expect(
           buildPurchasePanelView({
             variations: [BOTTLE],
             availability: soldOut,
-            isAuthenticated,
+            visitor,
             signInHref: '/api/auth/login',
           }),
-        ).toMatchObject({ state: 'unavailable', signInCta: undefined });
+        ).toMatchObject({ state: 'unavailable' });
       }
       // The wire status `restricted` is the denial.
       const restricted: VariationAvailability[] = [{ ...DENIED[0], status: 'restricted' }];
@@ -482,7 +497,7 @@ describe('buildPurchasePanelView', () => {
         buildPurchasePanelView({
           variations: [BOTTLE],
           availability: restricted,
-          isAuthenticated: false,
+          visitor: 'anonymous',
         }).state,
       ).toBe('members-only');
     });
@@ -499,9 +514,87 @@ describe('buildPurchasePanelView', () => {
     it('is not asserted without an availability read', () => {
       expect(buildPurchasePanelView({ variations: [BOTTLE] }).state).toBe('purchasable');
       expect(
-        buildPurchasePanelView({ variations: [BOTTLE], availability: null, isAuthenticated: true })
+        buildPurchasePanelView({ variations: [BOTTLE], availability: null, visitor: 'signed-in' })
           .state,
       ).toBe('purchasable');
+    });
+  });
+
+  describe('a view built without the opt-in has exactly the 0.7.1 keys', () => {
+    // The keys of buildPurchasePanelView's result in 0.7.1, pinned.
+    const KEYS_0_7_1 = [
+      'canIncrement',
+      'canPurchase',
+      'cartLine',
+      'cartNote',
+      'clubUpsell',
+      'entitlementStatus',
+      'formats',
+      'grantName',
+      'memberBadge',
+      'membersOnlyNote',
+      'options',
+      'requestCta',
+      'scarcityCap',
+      'scarcityNote',
+      'scarcityStatus',
+      'selectedVariationId',
+      'state',
+      'summary',
+      'unavailableNote',
+      'waitingListCta',
+    ];
+    const denied: VariationAvailability = {
+      productVariationId: 'var_bottle',
+      permission: 'unavailable',
+      canAddToCart: false,
+      canAddToWishlist: false,
+      quantityLimit: null,
+      grantContext: null,
+    };
+
+    const cases: [string, Parameters<typeof buildPurchasePanelView>[0]][] = [
+      ['retail, purchasable', { variations: [BOTTLE] }],
+      ['retail, denied', { variations: [BOTTLE], availability: [denied] }],
+      [
+        'retail, denied, with every new href',
+        {
+          variations: [BOTTLE],
+          availability: [denied],
+          signInHref: '/api/auth/login',
+          waitingListHref: '/membership',
+        },
+      ],
+      ['allocation, members-only', { lens: 'allocation', variations: [BOTTLE] }],
+      [
+        'allocation, members-only, with a sign-in href',
+        { lens: 'allocation', variations: [BOTTLE], signInHref: '/api/auth/login' },
+      ],
+      [
+        'allocation, not-allocated',
+        {
+          lens: 'allocation',
+          variations: [BOTTLE],
+          isAuthenticated: true,
+          memberships: [{ id: 'm', clubId: 'c', clubName: 'Club', status: 'active' }],
+          availability: [denied],
+        },
+      ],
+    ];
+
+    it.each(cases)('%s', (_, input) => {
+      const view = buildPurchasePanelView(input);
+      expect(Object.keys(view).sort()).toEqual(KEYS_0_7_1);
+    });
+
+    it('adds signInCta only with the opt-in and a sign-in action', () => {
+      const view = buildPurchasePanelView({
+        variations: [BOTTLE],
+        availability: [denied],
+        visitor: 'anonymous',
+        signInHref: '/api/auth/login',
+      });
+      expect(Object.keys(view).sort()).toEqual([...KEYS_0_7_1, 'signInCta'].sort());
     });
   });
 
@@ -555,8 +648,8 @@ describe('buildPurchasePanelView', () => {
       const base = { variations: [BOTTLE], ...input } as Parameters<
         typeof buildPurchasePanelView
       >[0];
-      expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).state).toBe(anonymous);
-      expect(buildPurchasePanelView({ ...base, isAuthenticated: true }).state).toBe(signedIn);
+      expect(buildPurchasePanelView({ ...base, visitor: 'anonymous' }).state).toBe(anonymous);
+      expect(buildPurchasePanelView({ ...base, visitor: 'signed-in' }).state).toBe(signedIn);
       expect(buildPurchasePanelView(base).state).toBe(unknown);
     });
   });

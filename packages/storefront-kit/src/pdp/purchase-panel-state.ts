@@ -11,8 +11,9 @@
 //   When the platform denies THIS visitor the purchase, with no request path and
 //   no `restricted` input, the dead end is members-only for an anonymous visitor
 //   (sign in, or join the list) and not-allocated for a signed-in one — but only
-//   when the caller KNOWS who is signed in (`isAuthenticated` true or false). With
-//   it unknown (omitted) the denial stays `unavailable`, as it always was. A
+//   when the caller opts in with `visitor` ('anonymous' | 'signed-in'). Without it
+//   the denial stays `unavailable`, as it always was, and `isAuthenticated` keeps
+//   its 0.7.1 meaning (the allocation ladder only). A
 //   used-up cap and a sold-out wine stay `unavailable`. The anonymous read cannot
 //   say WHY a wine is not public, so neither state promises that signing in
 //   unlocks it.
@@ -190,18 +191,23 @@ export interface PurchasePanelInput {
   selectedVariationId?: string;
   /** Which purchase model resolves the panel state. Default: retail. */
   lens?: PurchaseLens;
-  /** Whether the visitor has an authenticated store session. Allocation lens:
-   * membership gates everything. Retail lens: tells a signed-in visitor the
-   * platform denies (not-allocated) from an anonymous one (members-only); a
-   * tri-state there — `undefined` (unknown) keeps a denial `unavailable`. */
+  /** Whether the visitor has an authenticated store session (allocation lens:
+   * membership gates everything). Unchanged since 0.7.1; the retail lens does
+   * not read it — see `visitor`. */
   isAuthenticated?: boolean;
+  /** OPT-IN for the permission-denied arm. Who the visitor is, once the caller
+   * KNOWS it: 'anonymous' makes a retail denial `members-only` and offers SIGN IN;
+   * 'signed-in' makes it `not-allocated`. Absent (unknown) is exactly 0.7.1: a
+   * retail denial is `unavailable`, no sign-in action, and the view carries no
+   * new keys. */
+  visitor?: 'anonymous' | 'signed-in';
   /** Waiting-list destination for the members-only / not-allocated CTA. The
    * allocation lens falls back to `DEFAULT_WAITING_LIST_HREF`; the retail lens
    * renders the CTA only when this is supplied. */
   waitingListHref?: string;
   /** Where the members-only state's SIGN IN action goes (the site's login
-   * start). Omitted → no sign-in action. The action is offered only to a visitor
-   * KNOWN to be signed out (`isAuthenticated === false`). */
+   * start). Omitted → no sign-in action. The action is offered only with
+   * `visitor: 'anonymous'`. */
   signInHref?: string;
   pricing?: VariationPricing[] | null;
   availability?: VariationAvailability[] | null;
@@ -332,7 +338,7 @@ export function buildPurchasePanelView(input: PurchasePanelInput): PurchasePanel
           cartLine,
           availability: selectedAvailability,
           hasCartProduct: input.hasCartProduct,
-          isAuthenticated: input.isAuthenticated,
+          visitor: input.visitor,
           restricted: input.restricted,
         });
   const quantityCap = resolveQuantityCap(selectedAvailability, input.errorQuantityLimit);
@@ -408,10 +414,11 @@ export function buildPurchasePanelView(input: PurchasePanelInput): PurchasePanel
         ? { label: REQUEST_CTA_LABEL, href: input.requestHref }
         : undefined,
     waitingListCta: resolveWaitingListCta(state, lens, input.waitingListHref),
-    signInCta:
-      state === 'members-only' && input.isAuthenticated === false && input.signInHref
-        ? { label: SIGN_IN_CTA_LABEL, href: input.signInHref }
-        : undefined,
+    // A new key only when there is a sign-in action: a view built without the
+    // opt-in has exactly 0.7.1's keys.
+    ...(state === 'members-only' && input.visitor === 'anonymous' && input.signInHref
+      ? { signInCta: { label: SIGN_IN_CTA_LABEL, href: input.signInHref } }
+      : {}),
     canIncrement: quantityCap === undefined || cartQuantity < quantityCap,
     canPurchase: state === 'purchasable' && hasPurchasablePrice(selected, input.fallbackPriceLabel),
   };
@@ -669,8 +676,8 @@ function resolveRetailPanelState(context: {
   cartLine?: CartLine;
   availability?: VariationAvailability;
   hasCartProduct?: boolean;
-  /** `undefined`: who is signed in is unknown, so a denial stays `unavailable`. */
-  isAuthenticated: boolean | undefined;
+  /** `undefined`: the caller did not opt in, so a denial stays `unavailable`. */
+  visitor: 'anonymous' | 'signed-in' | undefined;
   restricted?: boolean;
 }): PurchasePanelState {
   if (context.cartLine) return 'in-cart';
@@ -692,9 +699,9 @@ function resolveRetailPanelState(context: {
       isDenied &&
       !isCapReached &&
       availability.status !== 'sold_out' &&
-      context.isAuthenticated !== undefined
+      context.visitor !== undefined
     ) {
-      return context.isAuthenticated ? 'not-allocated' : 'members-only';
+      return context.visitor === 'signed-in' ? 'not-allocated' : 'members-only';
     }
     return 'unavailable';
   }

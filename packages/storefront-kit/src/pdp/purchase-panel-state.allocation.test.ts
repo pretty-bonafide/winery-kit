@@ -163,16 +163,22 @@ describe('buildPurchasePanelView', () => {
       signInHref: '/api/auth/login',
     };
 
-    // Known signed out: SIGN IN. Unknown (a session still pending, or none) and
-    // signed in: no sign-in action.
-    expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).signInCta).toEqual({
+    // `visitor: 'anonymous'`: SIGN IN. `isAuthenticated` alone (the 0.7.1 input),
+    // an unknown visitor and a signed-in one: no sign-in action.
+    expect(buildPurchasePanelView({ ...base, visitor: 'anonymous' }).signInCta).toEqual({
       label: 'SIGN IN',
       href: '/api/auth/login',
     });
+    expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).signInCta).toBeUndefined();
     expect(buildPurchasePanelView(base).signInCta).toBeUndefined();
     expect(
-      buildPurchasePanelView({ ...base, isAuthenticated: true, memberships: [], availability: [] })
-        .signInCta,
+      buildPurchasePanelView({
+        ...base,
+        visitor: 'signed-in',
+        isAuthenticated: true,
+        memberships: [],
+        availability: [],
+      }).signInCta,
     ).toBeUndefined();
   });
 
