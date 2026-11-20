@@ -32,6 +32,7 @@ import {
   ScarcityCap,
   ScarcityNote,
   ScarcityStatus,
+  SignInCta,
   Stepper,
   Summary,
   UnavailableNote,
@@ -70,6 +71,7 @@ export const PurchasePanel = Object.assign(PurchasePanelBase, {
   AddToCart,
   ViewCart,
   WaitingListCta,
+  SignInCta,
 });
 
 export type { PurchasePanelClasses, PurchasePanelProps } from './purchase-panel.js';

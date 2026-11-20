@@ -45,6 +45,24 @@ describe('parsePricingPreviewResponse', () => {
 });
 
 describe('parseAvailabilityResponse', () => {
+  it('keeps the wire status, so sold_out stays distinguishable from restricted', () => {
+    const entry = (productVariationId: string, status: string) => ({
+      productVariationId,
+      status,
+      canAddToCart: false,
+      canAddToWishlist: false,
+      quantityLimit: null,
+    });
+    const result = parseAvailabilityResponse({
+      availability: [entry('a', 'sold_out'), entry('b', 'restricted')],
+    });
+
+    expect(result?.map((e) => [e.productVariationId, e.permission, e.status])).toEqual([
+      ['a', 'unavailable', 'sold_out'],
+      ['b', 'unavailable', 'restricted'],
+    ]);
+  });
+
   it('translates the wire status/grant into the panel domain model', () => {
     const result = parseAvailabilityResponse({
       availability: [
@@ -64,6 +82,7 @@ describe('parseAvailabilityResponse', () => {
       {
         productVariationId: 'var_bottle',
         permission: 'purchase',
+        status: 'available',
         canAddToCart: true,
         canAddToWishlist: false,
         quantityLimit: { limit: 6, redeemed: 6, available: 0 },
@@ -192,6 +211,7 @@ describe('parsePurchaseContextResponse', () => {
         {
           productVariationId: 'var_bottle',
           permission: 'purchase',
+          status: 'available',
           canAddToCart: true,
           canAddToWishlist: false,
           quantityLimit: { limit: 6, redeemed: 1, available: 5 },

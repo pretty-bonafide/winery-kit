@@ -9,6 +9,7 @@
 // different *structure* compose Root and the parts directly instead
 // (purchase-panel-parts.tsx); both tiers share the same behavior path.
 import type { AlternativeCandidate, CartProductSeed, PurchaseLens } from '@pretty-good/storefront-kit/pdp';
+import type { PurchasePanelSession } from '@pretty-good/storefront-kit/react';
 import type { StorefrontApiConfig } from '@pretty-good/storefront-kit/storefront-api';
 import { PurchasePanelRoot, usePurchasePanelContext } from './purchase-panel-context.js';
 import {
@@ -26,6 +27,7 @@ import {
   ScarcityCap,
   ScarcityNote,
   ScarcityStatus,
+  SignInCta,
   Stepper,
   Summary,
   UnavailableNote,
@@ -120,6 +122,14 @@ export interface PurchasePanelProps {
   unitNoun?: string;
   lens?: PurchaseLens;
   waitingListHref?: string;
+  /** Where the members-only state's SIGN IN action goes (the site's login
+   * start). Omitted → no sign-in action. */
+  signInHref?: string;
+  /** The site's proxy base for the credentialed purchase-context read (see
+   * `UsePurchasePanelOptions.customerContextApi`). */
+  customerContextApi?: StorefrontApiConfig;
+  /** The visitor's session, from the site (see `UsePurchasePanelOptions.session`). */
+  session?: PurchasePanelSession;
   /** Recovery suggestions when this wine can't be purchased. The island verifies
    * each is itself sellable before offering it (the rendered link is the
    * context-verified `alternative`). */
@@ -138,6 +148,9 @@ export function PurchasePanel({
   unitNoun = 'bottle',
   lens = 'retail',
   waitingListHref,
+  signInHref,
+  customerContextApi,
+  session,
   alternativeCandidates,
   viewCartLabel = 'VIEW CART →',
   allocationLabel = 'ALLOCATION',
@@ -152,10 +165,18 @@ export function PurchasePanel({
       unitNoun={unitNoun}
       lens={lens}
       waitingListHref={waitingListHref}
+      signInHref={signInHref}
+      customerContextApi={customerContextApi}
+      session={session}
       alternativeCandidates={alternativeCandidates}
       className={c.root}
     >
-      <PanelBody viewCartLabel={viewCartLabel} allocationLabel={allocationLabel} classes={c} />
+      <PanelBody
+        lens={lens}
+        viewCartLabel={viewCartLabel}
+        allocationLabel={allocationLabel}
+        classes={c}
+      />
     </PurchasePanelRoot>
   );
 }
@@ -173,10 +194,12 @@ function ScarcityRow({ classes: c }: { classes: PurchasePanelClasses }) {
 }
 
 function PanelBody({
+  lens,
   viewCartLabel,
   allocationLabel,
   classes: c,
 }: {
+  lens: PurchaseLens;
   viewCartLabel: string;
   allocationLabel: string;
   classes: PurchasePanelClasses;
@@ -284,11 +307,14 @@ function PanelBody({
             <p className={c.unavailablePrice}>{view.summary.price}</p>
             <UnavailableNote className={c.unavailableNote} />
           </div>
-          {alternative && (
+          {(alternative || view.waitingListCta) && (
             <div className={c.controls}>
-              <a href={alternative.href} className={c.buttonOutline}>
-                {alternative.label} →
-              </a>
+              {alternative && (
+                <a href={alternative.href} className={c.buttonOutline}>
+                  {alternative.label} →
+                </a>
+              )}
+              <WaitingListCta className={c.buttonOutline} />
             </div>
           )}
         </div>
@@ -302,6 +328,13 @@ function PanelBody({
             <MembersOnlyNote className={c.membersOnlyNote} />
           </div>
           <div className={c.controls}>
+            {/* A retail denial keeps the alternative the `unavailable` band offers. */}
+            {lens === 'retail' && alternative && (
+              <a href={alternative.href} className={c.buttonOutline}>
+                {alternative.label} →
+              </a>
+            )}
+            <SignInCta className={c.buttonOutline} />
             <WaitingListCta className={c.buttonOutline} />
           </div>
         </div>

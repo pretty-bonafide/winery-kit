@@ -156,6 +156,42 @@ describe('buildPurchasePanelView', () => {
     expect(view.canPurchase).toBe(false);
   });
 
+  it('offers SIGN IN on members-only only to a visitor known to be signed out, and only when wired', () => {
+    const base: Parameters<typeof buildPurchasePanelView>[0] = {
+      lens: 'allocation',
+      variations: [BOTTLE],
+      signInHref: '/api/auth/login',
+    };
+
+    // `visitor: 'anonymous'`: SIGN IN. `isAuthenticated` alone (the 0.7.1 input),
+    // an unknown visitor and a signed-in one: no sign-in action.
+    expect(buildPurchasePanelView({ ...base, visitor: 'anonymous' }).signInCta).toEqual({
+      label: 'SIGN IN',
+      href: '/api/auth/login',
+    });
+    expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).signInCta).toBeUndefined();
+    expect(buildPurchasePanelView(base).signInCta).toBeUndefined();
+    expect(
+      buildPurchasePanelView({
+        ...base,
+        visitor: 'signed-in',
+        isAuthenticated: true,
+        memberships: [],
+        availability: [],
+      }).signInCta,
+    ).toBeUndefined();
+  });
+
+  it('keeps the allocation waiting-list destination exactly: nullish default, an empty href stays', () => {
+    expect(
+      buildPurchasePanelView({ lens: 'allocation', variations: [BOTTLE] }).waitingListCta?.href,
+    ).toBe('/waiting-list');
+    expect(
+      buildPurchasePanelView({ lens: 'allocation', variations: [BOTTLE], waitingListHref: '' })
+        .waitingListCta?.href,
+    ).toBe('');
+  });
+
   it('renders the purchasable state for a member with the wine in their allocation', () => {
     const view = buildPurchasePanelView({
       lens: 'allocation',

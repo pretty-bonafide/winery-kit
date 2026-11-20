@@ -98,9 +98,15 @@ export interface QuantityLimit {
   available: number;
 }
 
+export type AvailabilityStatus = 'available' | 'sold_out' | 'restricted' | 'by_request';
+
 export interface VariationAvailability {
   productVariationId: string;
   permission: 'purchase' | 'wishlist' | 'unavailable';
+  /** The wire status `permission` was collapsed from; it tells `sold_out` from
+   * `restricted`, which `permission` cannot. Optional: callers that build an
+   * availability by hand omit it. */
+  status?: AvailabilityStatus;
   canAddToCart: boolean;
   canAddToWishlist: boolean;
   quantityLimit: QuantityLimit | null;
@@ -237,6 +243,7 @@ function normalizeAvailabilityEntries(
   return entries.map((entry) => ({
     productVariationId: entry.productVariationId,
     permission: STATUS_TO_PERMISSION[entry.status],
+    status: entry.status,
     canAddToCart: entry.canAddToCart,
     canAddToWishlist: entry.canAddToWishlist,
     quantityLimit: entry.quantityLimit,

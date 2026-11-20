@@ -101,19 +101,29 @@ compound API. Sites pick a **lens**; the lens decides which states are reachable
 
 | Lens | Model | Reachable states |
 |---|---|---|
-| `retail` (default) | Public catalog — anonymous visitors can buy | `purchasable` · `in-cart` · `unavailable` · `restricted` · `by-request` · `degraded` |
+| `retail` (default) | Public catalog — anonymous visitors can buy | `purchasable` · `in-cart` · `unavailable` · `members-only` · `not-allocated` · `restricted` · `by-request` · `degraded` |
 | `allocation` | Members-only store | `members-only` · `purchasable` · `in-cart` · `not-allocated` · `by-request` · `degraded` |
 
 - `purchasable` — price + enabled add-to-cart. Member pricing swaps in per the pricing
   bullet below.
 - `in-cart` — a cart line matches the selected variation: quantity stepper + VIEW CART.
-- `unavailable` (retail) — availability affirmatively blocks the purchase (sold out,
-  caps): muted price, no enabled purchase CTA; the alternative suggestion (below) fills
-  the CTA slot.
-- `members-only` (allocation) — anonymous or non-member visitor: price visible,
-  waiting-list CTA, never an enabled purchase CTA.
-- `not-allocated` (allocation) — member without (or with exhausted) entitlement: muted
-  price, explanation copy, no CTA.
+- `unavailable` (retail) — availability blocks the purchase for a reason that is not the
+  visitor's permission (a used-up per-customer cap, a `sold_out` status): muted price, no
+  enabled purchase CTA; the alternative suggestion (below) fills the CTA slot.
+- `members-only` — a visitor who is not signed in. Allocation: anonymous or non-member.
+  Retail (opt-in, see §7): the platform's customer-aware read denies THIS visitor the
+  purchase (`!canAddToCart` or `permission: 'unavailable'`, no cap, not `sold_out`), no
+  request path is open, and the site supplied the panel's `session` so the visitor is
+  known to be signed out. Without `session` a denial is `unavailable`, exactly as before.
+  Price visible, the members sentence ("Reserved for select members. Sign in
+  to check your availability."), a SIGN IN action when the site supplies `signInHref`, the
+  waiting-list CTA (retail: only when `waitingListHref` is supplied); never an enabled
+  purchase CTA. The anonymous read cannot say *why* a wine is not public, so the state
+  never promises that signing in unlocks it.
+- `not-allocated` — a signed-in visitor the platform denies. Allocation: member without
+  (or with exhausted) entitlement, no CTA. Retail: the same denial as above — muted
+  price, "Not in your current allocation", the waiting-list CTA (when supplied), no
+  sign-in action.
 - `restricted` (retail) — entitlement-gated wine on a public catalog: visible to
   everyone, purchasable by allocated customers. Only ever asserted from an affirmative
   offer-level `restricted` input (site/CMS-supplied). Copy is **scarcity-first**
@@ -137,8 +147,10 @@ compound API. Sites pick a **lens**; the lens decides which states are reachable
 
 Precedence — customer-meaningful facts win:
 - `in-cart` outranks everything (the line is already held).
-- An open request path (`by-request`) outranks the `unavailable` / `not-allocated` /
-  `restricted` dead ends.
+- An open request path (`by-request`) outranks the `unavailable` / `members-only` /
+  `not-allocated` / `restricted` dead ends. On the retail lens an explicit `restricted: true`
+  input keeps the `restricted` state, and a used-up cap stays `unavailable`; both outrank
+  the permission-denied `members-only` / `not-allocated` arm.
 - Availability facts (`unavailable` / `not-allocated` / `restricted`) outrank the
   `degraded` wiring gap.
 - The allocation lens **fails closed**: when a credentialed read fails or hasn't loaded,
@@ -306,6 +318,39 @@ no CORS. The kit's `customer-auth` module owns the protocol; each site owns the
   `/api/store/*` proxy, which attaches `getServerHeaders({ customerToken })`: the secret key
   as `Authorization: Bearer` and the access token as `x-customer-token`. Pass that proxy as
   `customerContextApi` on `CartRuntime`; the cart adapter keeps its direct base.
+- **Signed-in state for the panel.** On a code-exchange session the platform's own session
+  endpoint never sees the customer, so the site supplies the fact: `usePurchasePanel` /
+  `PurchasePanel` take `session: { status: 'pending' | 'anonymous' | 'authenticated' }`
+  (from the site's one session read per document), and `customerContextApi` (the
+  same-origin proxy) for the purchase-context read. When `session` is provided it is the
+  only source of "signed in" on both lenses (the allocation lens's direct platform
+  session read is skipped) and the purchase-context read waits until it is not `pending`.
+  Omitted, the panel behaves exactly as before: a retail denial stays `unavailable`, there
+  is no sign-in action, and the allocation lens reads its own platform session. The
+  contract for `session`:
+  - it SETTLES: the status goes `pending` -> `anonymous` | `authenticated`. A session read
+    that fails is `anonymous`; the kit has no timeout, so a status that stays `pending`
+    keeps the buy button pending and never reads;
+  - supply it from the first render or never (adding or removing it after mount is
+    unsupported);
+  - it settles ONCE per mounted panel. A site whose visitor can change without a
+    document load remounts the panel (a React `key` on the visitor). The panel freezes the
+    first settled status and does not recover if the supplied status changes later: it
+    logs one `console.error` naming this contract;
+  - nothing visitor-scoped is read or shown before it settles. The purchase-context read
+    waits for it, and the buy button stays pending until the session AND the first read
+    have settled (a failed or rejected read, or one that has not answered within 6 s, then
+    fails open and is logged: the platform still refuses the cart add);
+  - `signInHref` takes effect only with `session`, and only once the status is `anonymous`.
+  The pure core's opt-in is its own input, `visitor: 'anonymous' | 'signed-in'`, derived by
+  the hook from the settled `session`; `isAuthenticated` keeps its 0.7.1 meaning (the
+  allocation ladder), and a view built without `visitor` has exactly 0.7.1's keys.
+  The read depends on the config's base URL and publishable key by value, so a caller may
+  build `storefrontApi` / `customerContextApi` inline. A site that reads its session once per
+  document changes the session only through full-document navigations; a site whose visitor
+  can change without one remounts the panel with a React `key` on the visitor.
+  In `PurchasePanel.States`, the retail `membersOnly` / `notAllocated` renderers are
+  optional; a retail state with no renderer renders the site's `unavailable` renderer.
 - **Logout:** `POST /api/auth/logout` clears the session and returns the anonymous view.
 - `/sign-in` is the page a failed round trip lands on, not the entry point.
 - Any auth error degrades silently to anonymous — never block page render on auth.
