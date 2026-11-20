@@ -339,8 +339,8 @@ no CORS. The kit's `customer-auth` module owns the protocol; each site owns the
     logs one `console.error` naming this contract;
   - nothing visitor-scoped is read or shown before it settles. The purchase-context read
     waits for it, and the buy button stays pending until the session AND the first read
-    have settled (a failed or rejected read then fails open: the platform still refuses the
-    cart add);
+    have settled (a failed or rejected read, or one that has not answered within 6 s, then
+    fails open and is logged: the platform still refuses the cart add);
   - `signInHref` takes effect only with `session`, and only once the status is `anonymous`.
   The pure core's opt-in is its own input, `visitor: 'anonymous' | 'signed-in'`, derived by
   the hook from the settled `session`; `isAuthenticated` keeps its 0.7.1 meaning (the

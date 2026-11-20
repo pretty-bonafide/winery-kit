@@ -180,6 +180,10 @@ export interface UsePurchasePanelResult {
   viewRef: (node: Element | null) => void;
 }
 
+/** How long a panel given a site session waits for its purchase-context read
+ * before failing open. Bounds the time the buy button can stay pending. */
+export const PURCHASE_CONTEXT_DEADLINE_MS = 6000;
+
 // One purchase-context read: the failure policy lives here, the state setting
 // stays with the caller.
 function readCustomerContext(
@@ -371,27 +375,46 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     if (sessionStatus === 'pending') return;
     if (lens === 'allocation' && sessionStatus !== 'authenticated') return;
 
+    // The read settles exactly once: by its answer, its rejection or its
+    // deadline, whichever comes first. Each of the last two, and an answer with
+    // no context, fails open (the platform still refuses the add) and is
+    // logged, so the buy button is never left pending and never opens silently.
     let cancelled = false;
+    let settled = false;
     const settle = (context: CustomerPurchaseContext | null) => {
-      if (cancelled) return;
+      if (cancelled || settled) return;
+      settled = true;
+      clearTimeout(deadline);
       setPricing(context?.pricing ?? null);
       setAvailability(context?.availability ?? null);
       setMemberships(context?.memberships ?? null);
       setIsContextSettled(true);
     };
-    // A rejection settles like a null answer (fail open) so the buy button is
-    // never left pending forever; it is logged, never silent.
+    const deadline = setTimeout(() => {
+      if (cancelled || settled) return;
+      console.error(
+        `usePurchasePanel: purchase context read exceeded ${PURCHASE_CONTEXT_DEADLINE_MS} ms — failing open.`,
+      );
+      settle(null);
+    }, PURCHASE_CONTEXT_DEADLINE_MS);
     readCustomerContext(
       { baseUrl: contextBaseUrl, publishableKey: contextPublishableKey },
       contextVariationIds,
       lens,
-      settle,
+      (context) => {
+        if (context == null && lens === 'retail' && !cancelled && !settled) {
+          console.error('usePurchasePanel: purchase context unavailable — failing open.');
+        }
+        settle(context);
+      },
     ).catch((error) => {
+      if (cancelled || settled) return;
       console.error('usePurchasePanel: purchase context read rejected — failing open.', error);
       settle(null);
     });
     return () => {
       cancelled = true;
+      clearTimeout(deadline);
     };
   }, [
     hasSiteSession,

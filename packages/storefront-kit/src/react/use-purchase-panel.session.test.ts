@@ -3,7 +3,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CartSnapshot } from '../cart/cart-types.js';
 import type { StorefrontProduct } from '../storefront-api/products.js';
-import { type UsePurchasePanelOptions, usePurchasePanel } from './use-purchase-panel.js';
+import {
+  PURCHASE_CONTEXT_DEADLINE_MS,
+  type UsePurchasePanelOptions,
+  usePurchasePanel,
+} from './use-purchase-panel.js';
 
 const mocks = vi.hoisted(() => {
   const cart: CartSnapshot = {
@@ -337,6 +341,46 @@ describe('usePurchasePanel with a site session: a rejected read', () => {
     expect(panel.result.current.view.state).toBe('purchasable');
     expect(panel.result.current.addDisabled).toBe(false);
     expect(error).toHaveBeenCalledWith(expect.stringContaining('rejected'), expect.any(Error));
+  });
+});
+
+describe('usePurchasePanel with a site session: a read that never answers', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('fails open at the deadline, logged, and ignores the late answer', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let answer: (context: typeof DENIED_CONTEXT) => void = () => undefined;
+    mocks.fetchContext.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    vi.useFakeTimers();
+    const panel = mount({ session: { status: 'anonymous' } });
+    await panel.render();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(panel.result.current.addDisabled).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PURCHASE_CONTEXT_DEADLINE_MS);
+    });
+
+    expect(panel.result.current.view.state).toBe('purchasable');
+    expect(panel.result.current.addDisabled).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('exceeded'));
+
+    await act(async () => {
+      answer(DENIED_CONTEXT);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(panel.result.current.view.state).toBe('purchasable');
+    error.mockRestore();
   });
 });
 
