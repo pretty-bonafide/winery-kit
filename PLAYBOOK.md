@@ -169,8 +169,11 @@ RULES.md Rule 5 is the invariant; this is what the reference site does about it:
 ## 4. Commerce integration checklist
 
 - [ ] PDP renders from `usePurchasePanel` view model — all states for the lens
-      (retail: purchasable / in-cart / unavailable; allocation: members-only /
-      purchasable / in-cart / not-allocated)
+      (retail: purchasable / in-cart / unavailable / members-only / not-allocated /
+      restricted / by-request; allocation: members-only / purchasable / in-cart /
+      not-allocated). A product card that gates its own buy button asks the same
+      permission question as the PDP and never lets the CMS lens decide it; pass
+      `signInHref`, `waitingListHref`, `customerContextApi` and `session` to the panel
 - [ ] Multi-format wines show the FormatSelector (server-sorted variations);
       products with options (merch Color, Size) show the kit's `OptionSelector`.
       Compose both; the kit renders at most one
