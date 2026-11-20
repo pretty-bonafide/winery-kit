@@ -328,16 +328,23 @@ no CORS. The kit's `customer-auth` module owns the protocol; each site owns the
   Omitted, the panel behaves exactly as before: a retail denial stays `unavailable`, there
   is no sign-in action, and the allocation lens reads its own platform session. The
   contract for `session`:
+  - it SETTLES: the status goes `pending` -> `anonymous` | `authenticated`. A session read
+    that fails is `anonymous`; the kit has no timeout, so a status that stays `pending`
+    keeps the buy button pending and never reads;
   - supply it from the first render or never (adding or removing it after mount is
     unsupported);
-  - supply a status that settles: a session read that fails is `anonymous`. The kit has no
-    timeout, so a status that stays `pending` keeps the buy button pending and never reads;
-  - `signInHref` takes effect only with `session`, and only once the status is `anonymous`;
-  - the buy button stays pending until the session AND the first purchase-context read have
-    settled (a failed read then fails open: the platform still refuses the cart add);
-  - when the status changes, the previous visitor's pricing, availability, memberships and
-    cached cart-error quantity limit are cleared before any new read (the allocation lens
-    clears them when the visitor is no longer authenticated).
+  - it settles ONCE per mounted panel. A site whose visitor can change without a
+    document load remounts the panel (a React `key` on the visitor). The panel freezes the
+    first settled status and does not recover if the supplied status changes later: it
+    logs one `console.error` naming this contract;
+  - nothing visitor-scoped is read or shown before it settles. The purchase-context read
+    waits for it, and the buy button stays pending until the session AND the first read
+    have settled (a failed or rejected read then fails open: the platform still refuses the
+    cart add);
+  - `signInHref` takes effect only with `session`, and only once the status is `anonymous`.
+  The pure core's opt-in is its own input, `visitor: 'anonymous' | 'signed-in'`, derived by
+  the hook from the settled `session`; `isAuthenticated` keeps its 0.7.1 meaning (the
+  allocation ladder), and a view built without `visitor` has exactly 0.7.1's keys.
   The read depends on the config's base URL and publishable key by value, so a caller may
   build `storefrontApi` / `customerContextApi` inline. The site must change the session only
   through full-document navigations, or its per-document read goes stale.
