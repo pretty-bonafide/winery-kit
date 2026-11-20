@@ -84,6 +84,22 @@ const byRequest: CartLineView = {
   stockBadge: { kind: 'by-request', label: 'By request' },
 };
 
+// A fixed bundle (a box of wines sold as one product): ONE line at the bundle's
+// price, captioned with what one bundle holds. Its wines are never lines.
+const bundle: CartLineView = {
+  id: 'six',
+  productId: 'p-six',
+  title: 'Estate Six Discovery Box',
+  unitPrice: 24000,
+  purchaseQty: 2,
+  mode: 'purchase',
+  components: [
+    { title: '2024 Roussanne', quantity: 3 },
+    { title: '2024 Garnacha', quantity: 2 },
+    { title: '2023 Avenger', quantity: 1 },
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Automatic order promotions (cart-level) — threshold-driven offers. A nudge
 // while unmet (with optional progress bar); a savings/perk line once applied.
@@ -209,6 +225,7 @@ export const WishlistMix: Story = { args: { initialLines: [cabernet, atLimit] } 
 export const WishlistOnly: Story = {
   args: { initialLines: [byRequest, { ...byRequest, id: 'syrah', title: '2018 Library Syrah', unitPrice: 6400 }] },
 };
+export const BundleLine: Story = { args: { initialLines: [bundle, chardonnay] } };
 export const Processing: Story = { args: { mutating: true } };
 export const ErrorState: Story = { args: { errorMessage: 'We couldn’t update your cart. Please try again.' } };
 
@@ -245,3 +262,4 @@ export const ThemeNoir: Story = { args: { themeName: 'noir', initialLines: [memb
 export const ThemeCellarDark: Story = { args: { themeName: 'cellar', initialLines: [memberDiscount, cabernet] } };
 export const ThemeTerracotta: Story = { args: { themeName: 'terracotta', initialLines: [memberDiscount, cabernet] } };
 export const ThemeLedgerMono: Story = { args: { themeName: 'ledger', initialLines: [cabernet, atLimit] } };
+export const ThemeCellarBundle: Story = { args: { themeName: 'cellar', initialLines: [bundle, chardonnay] } };

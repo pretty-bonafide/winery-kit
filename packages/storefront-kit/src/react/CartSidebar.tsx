@@ -1,8 +1,10 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
 import type { CSSProperties } from 'react';
+import { bundleIncludesCaption } from '../cart/bundle-caption.js';
 import type {
   CartCurrency,
   CartLine,
+  CartLineComponent,
   CartLineView,
   CartPromotionView,
 } from '../cart/cart-types.js';
@@ -65,8 +67,12 @@ export interface CartSidebarProps {
    * line once applied. Empty/omitted renders nothing. When omitted, the
    * connected sidebar uses promotions normalized onto `cart.promotions`. */
   promotions?: CartPromotionView[];
+  /** The caption beneath a bundle line naming what one bundle holds. Defaults
+   * to `Includes: 2024 Roussanne × 3 · 2024 Garnacha × 3` (`bundleIncludesCaption`). */
+  includesCaption?: (components: readonly CartLineComponent[]) => string;
   /** Map a raw cart line into the presentation view-model. Defaults to a plain
-   * purchase line (no wishlist / discount / stock). */
+   * purchase line (no wishlist / discount / stock) that carries the bundle's
+   * `components`; a custom mapper sets `components` itself to caption a bundle. */
   mapLine?: (line: CartLine, currency: CartCurrency) => CartLineView;
   /** Optional: tapping the wishlist heart on an at-limit / wishlist-only line.
    * Wired once the wishlist data pipeline exists; no-op when omitted. */
@@ -90,6 +96,8 @@ export interface CartSidebarViewProps {
   lines: CartLineView[];
   /** Cart-level promotions (see `CartSidebarProps.promotions`). */
   promotions?: CartPromotionView[];
+  /** See `CartSidebarProps.includesCaption`. */
+  includesCaption?: (components: readonly CartLineComponent[]) => string;
   onClose: () => void;
   onRemove: (id: string) => void;
   onUpdateQuantity: (id: string, quantity: number) => void;
@@ -106,6 +114,7 @@ function defaultMapLine(line: CartLine): CartLineView {
     unitPrice: line.unitPrice,
     purchaseQty: line.quantity,
     mode: 'purchase',
+    components: line.components,
   };
 }
 
@@ -217,6 +226,7 @@ const STYLES = `
 .pgc-tag-member{color:var(--pgc-wishlist);background:var(--pgc-wishlist-tint);}
 .pgc-tag-sale{color:var(--pgc-surface);background:var(--pgc-wishlist);}
 .pgc-savings{margin:0;font-size:11.5px;color:var(--pgc-text-muted);}
+.pgc-includes{margin:0;font-size:11.5px;line-height:1.4;color:var(--pgc-text-muted);}
 .pgc-bottom{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;}
 .pgc-control{display:flex;flex-direction:column;gap:8px;align-items:flex-start;}
 .pgc-stepper{display:flex;}
@@ -267,6 +277,7 @@ interface LineItemProps {
   view: CartLineView;
   showImage: boolean;
   disabled: boolean;
+  includesCaption: (components: readonly CartLineComponent[]) => string;
   onRemove: () => void;
   onUpdateQuantity: (quantity: number) => void;
   onWishlistAdd?: () => void;
@@ -276,6 +287,7 @@ function LineItem({
   view,
   showImage,
   disabled,
+  includesCaption,
   onRemove,
   onUpdateQuantity,
   onWishlistAdd,
@@ -305,6 +317,9 @@ function LineItem({
             Remove
           </button>
         </div>
+        {view.components && view.components.length > 0 ? (
+          <p className="pgc-includes">{includesCaption(view.components)}</p>
+        ) : null}
 
         <div className="pgc-price-row">
           <span className="pgc-price">{formatUsdCents(view.unitPrice)}</span>
@@ -418,6 +433,7 @@ export function CartSidebarView({
   errorMessage = null,
   lines,
   promotions = [],
+  includesCaption = bundleIncludesCaption,
   onClose,
   onRemove,
   onUpdateQuantity,
@@ -541,6 +557,7 @@ export function CartSidebarView({
                     view={view}
                     showImage={theme.showLineImages ?? true}
                     disabled={false}
+                    includesCaption={includesCaption}
                     onRemove={() => onRemove(view.id)}
                     onUpdateQuantity={(quantity) => onUpdateQuantity(view.id, quantity)}
                     onWishlistAdd={onWishlistAdd ? () => onWishlistAdd(view) : undefined}
@@ -615,6 +632,7 @@ export function CartSidebar({
   browseHref,
   browseLabel,
   promotions,
+  includesCaption,
   mapLine,
   onWishlistAdd,
 }: CartSidebarProps) {
@@ -664,6 +682,7 @@ export function CartSidebar({
       errorMessage={error?.message ?? null}
       lines={views}
       promotions={displayPromotions}
+      includesCaption={includesCaption}
       onClose={closeCart}
       onRemove={(id) => void removeItem(id)}
       onUpdateQuantity={(id, quantity) => void updateQuantity(id, quantity)}

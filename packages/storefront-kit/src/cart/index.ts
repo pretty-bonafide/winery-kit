@@ -1,3 +1,4 @@
+export * from './bundle-caption.js';
 export * from './cart-indicator-state.js';
 export * from './cart-store.js';
 export * from './cart-types.js';

@@ -35,6 +35,14 @@ export interface CartErrorPayload {
   reason?: string;
 }
 
+/** One wine inside a bundle line: its display name and how many ONE bundle
+ * holds (the platform's component quantity ÷ the bundle line's quantity, so it
+ * does not move when the shopper changes the bundle's quantity). */
+export interface CartLineComponent {
+  title: string;
+  quantity: number;
+}
+
 export interface CartLine {
   id: string;
   productId: string;
@@ -45,6 +53,9 @@ export interface CartLine {
   quantity: number;
   unitPrice: number;
   imageUrl?: string;
+  /** What a bundle line holds; absent on every other line. The bundle is ONE
+   * line at the bundle's own price — its wines never appear as lines. */
+  components?: CartLineComponent[];
 }
 
 export interface CartSnapshot {
@@ -105,6 +116,8 @@ export interface CartLineView {
   wishlistQty?: number;
   mode: CartLineMode;
   stockBadge?: CartLineStockBadge;
+  /** What a bundle line holds, captioned beneath it. Omit for an ordinary line. */
+  components?: CartLineComponent[];
   /** Local persistence state for fast cart UIs. The shared cart store only emits
    * failed states for actionable recovery; host apps may pass pending when they
    * intentionally want to surface background persistence. */

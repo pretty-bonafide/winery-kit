@@ -300,13 +300,27 @@ function serverIdFor(localId: string): string | null {
 }
 
 /** Learn the real server id for a just-added line from the add response, so
- * later edits (and checkout) target the right line. Displayed state is untouched. */
+ * later edits (and checkout) target the right line. The displayed line keeps
+ * its local quantity and price and gains only what the add could not know:
+ * what a bundle holds. */
 function adoptServerLineId(input: AddToCartInput, serverCart: CartSnapshot) {
   const optId = optimisticLineId(input);
   const serverLine = serverCart.lines.find((line) => sameCartLine(line, input));
   if (!serverLine) return false;
   serverLineIds.set(optId, serverLine.id);
   optimisticInputs.delete(optId);
+  // Fills a displayed line that has no caption yet and never replaces one, so
+  // a response that arrives late cannot change what the cart already shows.
+  const { components } = serverLine;
+  const { cart } = state;
+  if (components && cart?.lines.some((line) => line.id === optId && !line.components)) {
+    setState({
+      cart: {
+        ...cart,
+        lines: cart.lines.map((line) => (line.id === optId ? { ...line, components } : line)),
+      },
+    });
+  }
   // Flush edits that were queued against the not-yet-acknowledged line.
   if (pendingQuantity.has(optId)) void drainLine(optId);
   return true;
