@@ -295,7 +295,8 @@ release name from `grant.name`. `quantityLimit.available === 0` or
 `status: 'by_request'` routes to the request/wishlist state. On the retail lens a
 `restricted` answer (or `canAddToCart: false` without a cap or `sold_out`) — what the
 customer-aware read says to a visitor with no permission to buy the wine, anonymous or
-signed in — routes to **members-only** (anonymous: the members sentence, SIGN IN,
+signed in — routes, when the site supplies the panel's `session` (otherwise it stays
+**unavailable**, as it always was), to **members-only** (anonymous: the members sentence, SIGN IN,
 waiting-list CTA) or **not-allocated** (signed in: allocation copy, waiting-list CTA). The
 credentialed read never emits `sold_out` and cannot say why a wine is not public, so the
 copy never promises that signing in unlocks it. `VariationAvailability.status` (optional)
@@ -419,8 +420,8 @@ Consistent with the existing requirements doc:
 - Empty memberships → plain signed-in (or anonymous) state.
 - Customer entitlement availability gaps still get enforced server-side at
   cart-add time via M5 error mapping.
-- A permission denial (retail): members-only for an anonymous visitor, not-allocated for a
-  signed-in one (§3 M4). A read that fails or never arrives asserts neither: the panel
+- A permission denial (retail, with the site's `session`): members-only for an anonymous
+  visitor, not-allocated for a signed-in one (§3 M4); `unavailable` without `session`. A read that fails or never arrives asserts neither: the panel
   renders purchasable (or restricted when the site asserts it) and the cart add is still
   enforced server-side.
 - Wishlist/waitlist deferred → scenario 04 renders price muted + explanatory note, no CTA.

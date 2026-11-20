@@ -111,9 +111,11 @@ compound API. Sites pick a **lens**; the lens decides which states are reachable
   visitor's permission (a used-up per-customer cap, a `sold_out` status): muted price, no
   enabled purchase CTA; the alternative suggestion (below) fills the CTA slot.
 - `members-only` — a visitor who is not signed in. Allocation: anonymous or non-member.
-  Retail: the platform's customer-aware read denies THIS visitor the purchase
-  (`!canAddToCart` or `permission: 'unavailable'`, no cap, not `sold_out`) and no request
-  path is open. Price visible, the members sentence ("Reserved for select members. Sign in
+  Retail (opt-in, see §7): the platform's customer-aware read denies THIS visitor the
+  purchase (`!canAddToCart` or `permission: 'unavailable'`, no cap, not `sold_out`), no
+  request path is open, and the site supplied the panel's `session` so the visitor is
+  known to be signed out. Without `session` a denial is `unavailable`, exactly as before.
+  Price visible, the members sentence ("Reserved for select members. Sign in
   to check your availability."), a SIGN IN action when the site supplies `signInHref`, the
   waiting-list CTA (retail: only when `waitingListHref` is supplied); never an enabled
   purchase CTA. The anonymous read cannot say *why* a wine is not public, so the state
@@ -323,8 +325,24 @@ no CORS. The kit's `customer-auth` module owns the protocol; each site owns the
   same-origin proxy) for the purchase-context read. When `session` is provided it is the
   only source of "signed in" on both lenses (the allocation lens's direct platform
   session read is skipped) and the purchase-context read waits until it is not `pending`.
-  Omitted, the panel behaves as before. The site must change session only through
-  full-document navigations, or the per-document read goes stale.
+  Omitted, the panel behaves exactly as before: a retail denial stays `unavailable`, there
+  is no sign-in action, and the allocation lens reads its own platform session. The
+  contract for `session`:
+  - supply it from the first render or never (adding or removing it after mount is
+    unsupported);
+  - supply a status that settles: a session read that fails is `anonymous`. The kit has no
+    timeout, so a status that stays `pending` keeps the buy button pending and never reads;
+  - `signInHref` takes effect only with `session`, and only once the status is `anonymous`;
+  - the buy button stays pending until the session AND the first purchase-context read have
+    settled (a failed read then fails open: the platform still refuses the cart add);
+  - when the status changes, the previous visitor's pricing, availability, memberships and
+    cached cart-error quantity limit are cleared before any new read (the allocation lens
+    clears them when the visitor is no longer authenticated).
+  The read depends on the config's base URL and publishable key by value, so a caller may
+  build `storefrontApi` / `customerContextApi` inline. The site must change the session only
+  through full-document navigations, or its per-document read goes stale.
+  In `PurchasePanel.States`, the retail `membersOnly` / `notAllocated` renderers are
+  optional; a retail state with no renderer renders the site's `unavailable` renderer.
 - **Logout:** `POST /api/auth/logout` clears the session and returns the anonymous view.
 - `/sign-in` is the page a failed round trip lands on, not the entry point.
 - Any auth error degrades silently to anonymous — never block page render on auth.

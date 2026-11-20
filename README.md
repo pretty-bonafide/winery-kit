@@ -424,8 +424,8 @@ What changes in the data (check charts and filters):
   `configureUtmStorage` / the `utmStorageKey` prop on `CartRuntime`).
 - Customer commerce context: `POST /purchase-context` batches pricing,
   availability, and memberships for visible PDP variations.
-- Who may buy (retail lens): when the platform denies THIS visitor the purchase, with no
-  request path, the panel is `members-only` (not signed in: sentence, SIGN IN, waiting
-  list) or `not-allocated` (signed in). The site supplies `session`, `signInHref`,
-  `waitingListHref` and `customerContextApi` to `usePurchasePanel`; see
-  `docs/winery-store-requirements.md` §4 and §7.
+- Who may buy (retail lens, opt-in): a site that supplies `session` (plus `signInHref`,
+  `waitingListHref`, `customerContextApi`) to `usePurchasePanel` gets, for a visitor the
+  platform denies with no request path, `members-only` (signed out: sentence, SIGN IN,
+  waiting list) or `not-allocated` (signed in). Without `session`, a denial is
+  `unavailable` as before. See `docs/winery-store-requirements.md` §4 and §7.
