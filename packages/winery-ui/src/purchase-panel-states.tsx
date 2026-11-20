@@ -4,10 +4,15 @@
 // consumer until that state has a designed render — the same discipline as
 // the per-state mock sheets, encoded in the types.
 //
+// The retail lens's `membersOnly` / `notAllocated` are optional: they resolve only
+// for a site that supplies the panel's `session`, and a site that has not
+// designed them gets its `unavailable` render (never nothing, never a buy button).
+//
 // The `lens` prop only narrows the prop type (which renderers are required);
 // runtime dispatch reads the resolved state off the Root context.
 import type { ReactNode } from 'react';
 import type { PurchasePanelView } from '@pretty-good/storefront-kit/pdp';
+import { UNAVAILABLE_NOTE } from '@pretty-good/storefront-kit/pdp';
 import { usePurchasePanelContext } from './purchase-panel-context.js';
 
 export type PurchaseStateRenderer = (view: PurchasePanelView) => ReactNode;
@@ -19,13 +24,16 @@ export interface RetailStateRenderers {
   /** Not purchasable for a reason that is not the visitor's permission (a
    * used-up cap). */
   unavailable: PurchaseStateRenderer;
-  /** The platform says an anonymous visitor may not buy this wine and no
-   * request path is open: the members sentence, a sign-in action and the
-   * waiting-list CTA. Says nothing about why the wine is not public. */
-  membersOnly: PurchaseStateRenderer;
-  /** The same denial for a signed-in customer: not-allocated copy plus the
-   * waiting-list CTA, no sign-in action. */
-  notAllocated: PurchaseStateRenderer;
+  /** OPTIONAL. The platform says an anonymous visitor may not buy this wine and
+   * no request path is open (reachable only when the site supplies the panel's
+   * `session`): the members sentence, a sign-in action and the waiting-list CTA.
+   * Says nothing about why the wine is not public. Omitted → the `unavailable`
+   * renderer is used. */
+  membersOnly?: PurchaseStateRenderer;
+  /** OPTIONAL. The same denial for a signed-in customer: not-allocated copy plus
+   * the waiting-list CTA, no sign-in action. Omitted → the `unavailable`
+   * renderer is used. */
+  notAllocated?: PurchaseStateRenderer;
   /** Entitlement-gated wine on the public catalog (offer-level `restricted`
    * input): scarcity-first communication, never an enabled purchase CTA. */
   restricted: PurchaseStateRenderer;
@@ -65,9 +73,9 @@ export function PurchasePanelStates(props: PurchasePanelStatesProps) {
     case 'unavailable':
       return <>{props.unavailable?.(view) ?? null}</>;
     case 'members-only':
-      return <>{props.membersOnly?.(view) ?? null}</>;
+      return <>{renderOrUnavailable(props.membersOnly, props.unavailable, view)}</>;
     case 'not-allocated':
-      return <>{props.notAllocated?.(view) ?? null}</>;
+      return <>{renderOrUnavailable(props.notAllocated, props.unavailable, view)}</>;
     case 'restricted':
       return <>{props.restricted?.(view) ?? null}</>;
     case 'by-request':
@@ -75,4 +83,21 @@ export function PurchasePanelStates(props: PurchasePanelStatesProps) {
     case 'degraded':
       return <>{props.degraded(view)}</>;
   }
+}
+
+// A retail denial the site has not designed falls back to its `unavailable`
+// render, handed the view as `unavailable` with the note that render expects.
+export function renderOrUnavailable(
+  own: PurchaseStateRenderer | undefined,
+  unavailable: PurchaseStateRenderer | undefined,
+  view: PurchasePanelView,
+): ReactNode {
+  if (own) return own(view);
+  return (
+    unavailable?.({
+      ...view,
+      state: 'unavailable',
+      unavailableNote: view.unavailableNote ?? UNAVAILABLE_NOTE,
+    }) ?? null
+  );
 }

@@ -171,7 +171,12 @@ export function PurchasePanel({
       alternativeCandidates={alternativeCandidates}
       className={c.root}
     >
-      <PanelBody viewCartLabel={viewCartLabel} allocationLabel={allocationLabel} classes={c} />
+      <PanelBody
+        lens={lens}
+        viewCartLabel={viewCartLabel}
+        allocationLabel={allocationLabel}
+        classes={c}
+      />
     </PurchasePanelRoot>
   );
 }
@@ -189,10 +194,12 @@ function ScarcityRow({ classes: c }: { classes: PurchasePanelClasses }) {
 }
 
 function PanelBody({
+  lens,
   viewCartLabel,
   allocationLabel,
   classes: c,
 }: {
+  lens: PurchaseLens;
   viewCartLabel: string;
   allocationLabel: string;
   classes: PurchasePanelClasses;
@@ -321,6 +328,12 @@ function PanelBody({
             <MembersOnlyNote className={c.membersOnlyNote} />
           </div>
           <div className={c.controls}>
+            {/* A retail denial keeps the alternative the `unavailable` band offers. */}
+            {lens === 'retail' && alternative && (
+              <a href={alternative.href} className={c.buttonOutline}>
+                {alternative.label} →
+              </a>
+            )}
             <SignInCta className={c.buttonOutline} />
             <WaitingListCta className={c.buttonOutline} />
           </div>
