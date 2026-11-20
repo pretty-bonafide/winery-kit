@@ -346,8 +346,9 @@ no CORS. The kit's `customer-auth` module owns the protocol; each site owns the
   the hook from the settled `session`; `isAuthenticated` keeps its 0.7.1 meaning (the
   allocation ladder), and a view built without `visitor` has exactly 0.7.1's keys.
   The read depends on the config's base URL and publishable key by value, so a caller may
-  build `storefrontApi` / `customerContextApi` inline. The site must change the session only
-  through full-document navigations, or its per-document read goes stale.
+  build `storefrontApi` / `customerContextApi` inline. A site that reads its session once per
+  document changes the session only through full-document navigations; a site whose visitor
+  can change without one remounts the panel with a React `key` on the visitor.
   In `PurchasePanel.States`, the retail `membersOnly` / `notAllocated` renderers are
   optional; a retail state with no renderer renders the site's `unavailable` renderer.
 - **Logout:** `POST /api/auth/logout` clears the session and returns the anonymous view.

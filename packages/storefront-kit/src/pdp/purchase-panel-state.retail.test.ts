@@ -298,6 +298,23 @@ describe('buildPurchasePanelView', () => {
       },
     ];
 
+    it('stays unavailable for either visitor when a cart error reports the cap used up', () => {
+      const usedUp = { limit: 6, redeemed: 6, available: 0 };
+      for (const visitor of ['anonymous', 'signed-in'] as const) {
+        const view = buildPurchasePanelView({
+          variations: [BOTTLE],
+          availability: DENIED,
+          errorQuantityLimit: usedUp,
+          visitor,
+          waitingListHref: '/membership',
+          signInHref: '/api/auth/login',
+        });
+
+        expect(view.state).toBe('unavailable');
+        expect(view.signInCta).toBeUndefined();
+      }
+    });
+
     it('is members-only for an anonymous visitor: the members sentence, sign in, the waiting list', () => {
       const view = buildPurchasePanelView({
         variations: [BOTTLE],

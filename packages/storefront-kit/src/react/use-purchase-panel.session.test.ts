@@ -282,8 +282,9 @@ describe('usePurchasePanel with a site session: it settles once per mounted pane
     await panel.render();
 
     expect(mocks.fetchContext).not.toHaveBeenCalled();
-    expect(panel.result.current.view.availability).toBeUndefined();
     expect(panel.result.current.view.memberBadge).toBeUndefined();
+    expect(panel.result.current.view.signInCta).toBeUndefined();
+    expect(panel.result.current.addDisabled).toBe(true);
     // A pending session reads as `false` on the result, not "unknown".
     expect(panel.result.current.isAuthenticated).toBe(false);
   });

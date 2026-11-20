@@ -339,6 +339,7 @@ export function buildPurchasePanelView(input: PurchasePanelInput): PurchasePanel
           availability: selectedAvailability,
           hasCartProduct: input.hasCartProduct,
           visitor: input.visitor,
+          errorQuantityLimit: input.errorQuantityLimit,
           restricted: input.restricted,
         });
   const quantityCap = resolveQuantityCap(selectedAvailability, input.errorQuantityLimit);
@@ -678,6 +679,8 @@ function resolveRetailPanelState(context: {
   hasCartProduct?: boolean;
   /** `undefined`: the caller did not opt in, so a denial stays `unavailable`. */
   visitor: 'anonymous' | 'signed-in' | undefined;
+  /** The cap a cart error reported, when it is newer than the availability read. */
+  errorQuantityLimit?: QuantityLimit | null;
   restricted?: boolean;
 }): PurchasePanelState {
   if (context.cartLine) return 'in-cart';
@@ -694,7 +697,8 @@ function resolveRetailPanelState(context: {
     // The platform denied THIS visitor the purchase. A used-up cap and a sold-out
     // wine are not a denial of the visitor: they stay unavailable.
     const isDenied = !availability.canAddToCart || availability.permission === 'unavailable';
-    const isCapReached = availability.quantityLimit?.available === 0;
+    const isCapReached =
+      availability.quantityLimit?.available === 0 || context.errorQuantityLimit?.available === 0;
     if (
       isDenied &&
       !isCapReached &&
