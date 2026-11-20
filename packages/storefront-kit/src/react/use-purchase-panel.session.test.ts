@@ -382,6 +382,30 @@ describe('usePurchasePanel with a site session: a read that never answers', () =
     expect(panel.result.current.view.state).toBe('purchasable');
     error.mockRestore();
   });
+
+  it('logs once on the allocation lens when a null answer arrives after the deadline', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let answer: (context: null) => void = () => undefined;
+    mocks.fetchContext.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    vi.useFakeTimers();
+    const panel = mount({ lens: 'allocation', session: { status: 'authenticated' } });
+    await panel.render();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PURCHASE_CONTEXT_DEADLINE_MS);
+    });
+    await act(async () => {
+      answer(null);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('exceeded'));
+    error.mockRestore();
+  });
 });
 
 describe('usePurchasePanel with a site session: config objects are compared by value', () => {

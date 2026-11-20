@@ -191,10 +191,14 @@ function readCustomerContext(
   variationIds: string[],
   lens: PurchaseLens,
   apply: (context: CustomerPurchaseContext | null) => void,
+  /** False once the caller no longer wants the answer (it settled another way,
+   * or unmounted); a late answer is then neither logged nor applied. */
+  isWanted: () => boolean = () => true,
 ): Promise<void> {
   return createCustomerContextClient(config)
     .fetchPurchaseContext(variationIds)
     .then((context) => {
+      if (!isWanted()) return;
       if (context == null && lens === 'allocation') {
         // Without affirmative data the view model degrades to members-only
         // rather than asserting "Not in your current allocation".
@@ -402,11 +406,12 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       contextVariationIds,
       lens,
       (context) => {
-        if (context == null && lens === 'retail' && !cancelled && !settled) {
+        if (context == null && lens === 'retail') {
           console.error('usePurchasePanel: purchase context unavailable — failing open.');
         }
         settle(context);
       },
+      () => !cancelled && !settled,
     ).catch((error) => {
       if (cancelled || settled) return;
       console.error('usePurchasePanel: purchase context read rejected — failing open.', error);
