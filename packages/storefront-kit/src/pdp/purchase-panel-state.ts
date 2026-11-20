@@ -10,9 +10,12 @@
 //   restricted | by-request | degraded.
 //   When the platform denies THIS visitor the purchase, with no request path and
 //   no `restricted` input, the dead end is members-only for an anonymous visitor
-//   (sign in, or join the list) and not-allocated for a signed-in one. A used-up
-//   cap and a sold-out wine stay `unavailable`. The anonymous read cannot say
-//   WHY a wine is not public, so neither state promises that signing in unlocks it.
+//   (sign in, or join the list) and not-allocated for a signed-in one — but only
+//   when the caller KNOWS who is signed in (`isAuthenticated` true or false). With
+//   it unknown (omitted) the denial stays `unavailable`, as it always was. A
+//   used-up cap and a sold-out wine stay `unavailable`. The anonymous read cannot
+//   say WHY a wine is not public, so neither state promises that signing in
+//   unlocks it.
 // - `allocation`: members-only store — membership gates everything, and the
 //   member's entitlement decides purchasable vs not-allocated. Anonymous and
 //   non-member visitors see members-only (price visible, waiting-list CTA).
@@ -159,7 +162,7 @@ export interface PurchasePanelView {
    * platform denies (not-allocated) — never an enabled purchase CTA. */
   waitingListCta?: { label: string; href: string };
   /** Sign-in action for the members-only state — present only when the site
-   * supplied `signInHref`. */
+   * supplied `signInHref` and the visitor is known to be signed out. */
   signInCta?: { label: string; href: string };
   /** Club-discount marketing teaser — present only for non-members on a
    * purchasable PDP (members see their real pricing instead). */
@@ -189,14 +192,16 @@ export interface PurchasePanelInput {
   lens?: PurchaseLens;
   /** Whether the visitor has an authenticated store session. Allocation lens:
    * membership gates everything. Retail lens: tells a signed-in visitor the
-   * platform denies (not-allocated) from an anonymous one (members-only). */
+   * platform denies (not-allocated) from an anonymous one (members-only); a
+   * tri-state there — `undefined` (unknown) keeps a denial `unavailable`. */
   isAuthenticated?: boolean;
   /** Waiting-list destination for the members-only / not-allocated CTA. The
    * allocation lens falls back to `DEFAULT_WAITING_LIST_HREF`; the retail lens
    * renders the CTA only when this is supplied. */
   waitingListHref?: string;
   /** Where the members-only state's SIGN IN action goes (the site's login
-   * start). Omitted → no sign-in action. */
+   * start). Omitted → no sign-in action. The action is offered only to a visitor
+   * KNOWN to be signed out (`isAuthenticated === false`). */
   signInHref?: string;
   pricing?: VariationPricing[] | null;
   availability?: VariationAvailability[] | null;
@@ -236,6 +241,7 @@ export const MEMBERS_ONLY_NOTE = 'Reserved for select members. Sign in to check 
 export const WAITING_LIST_CTA_LABEL = 'JOIN THE WAITING LIST';
 export const SIGN_IN_CTA_LABEL = 'SIGN IN';
 export const NOT_ALLOCATED_NOTE = 'Not in your current allocation';
+export const UNAVAILABLE_NOTE = 'This wine is not currently available for purchase.';
 export const DEFAULT_WAITING_LIST_HREF = '/waiting-list';
 export const RESTRICTED_STATUS = 'LIMITED ALLOCATION';
 export const RESTRICTED_NOTE = 'Reserved for select members. Sign in to check your availability.';
@@ -326,7 +332,7 @@ export function buildPurchasePanelView(input: PurchasePanelInput): PurchasePanel
           cartLine,
           availability: selectedAvailability,
           hasCartProduct: input.hasCartProduct,
-          isAuthenticated: Boolean(input.isAuthenticated),
+          isAuthenticated: input.isAuthenticated,
           restricted: input.restricted,
         });
   const quantityCap = resolveQuantityCap(selectedAvailability, input.errorQuantityLimit);
@@ -367,7 +373,7 @@ export function buildPurchasePanelView(input: PurchasePanelInput): PurchasePanel
         : undefined,
     unavailableNote:
       state === 'not-allocated'
-        ? formatNotAllocatedNote(selectedAvailability)
+        ? formatNotAllocatedNote(selectedAvailability, lens)
         : state === 'unavailable'
           ? formatUnavailableNote(selectedAvailability)
           : undefined,
@@ -403,7 +409,7 @@ export function buildPurchasePanelView(input: PurchasePanelInput): PurchasePanel
         : undefined,
     waitingListCta: resolveWaitingListCta(state, lens, input.waitingListHref),
     signInCta:
-      state === 'members-only' && !input.isAuthenticated && input.signInHref
+      state === 'members-only' && input.isAuthenticated === false && input.signInHref
         ? { label: SIGN_IN_CTA_LABEL, href: input.signInHref }
         : undefined,
     canIncrement: quantityCap === undefined || cartQuantity < quantityCap,
@@ -663,7 +669,8 @@ function resolveRetailPanelState(context: {
   cartLine?: CartLine;
   availability?: VariationAvailability;
   hasCartProduct?: boolean;
-  isAuthenticated: boolean;
+  /** `undefined`: who is signed in is unknown, so a denial stays `unavailable`. */
+  isAuthenticated: boolean | undefined;
   restricted?: boolean;
 }): PurchasePanelState {
   if (context.cartLine) return 'in-cart';
@@ -681,7 +688,12 @@ function resolveRetailPanelState(context: {
     // wine are not a denial of the visitor: they stay unavailable.
     const isDenied = !availability.canAddToCart || availability.permission === 'unavailable';
     const isCapReached = availability.quantityLimit?.available === 0;
-    if (isDenied && !isCapReached && availability.status !== 'sold_out') {
+    if (
+      isDenied &&
+      !isCapReached &&
+      availability.status !== 'sold_out' &&
+      context.isAuthenticated !== undefined
+    ) {
       return context.isAuthenticated ? 'not-allocated' : 'members-only';
     }
     return 'unavailable';
@@ -734,17 +746,22 @@ function resolveAllocationPanelState(context: {
   return 'purchasable';
 }
 
-// The allocation lens keeps its default destination; a retail site that never
-// supplied one has no waiting list to send a visitor to, so no CTA.
+// The allocation lens keeps its default destination (nullish, as ever); a retail
+// site that never supplied one has no waiting list to send a visitor to.
 function resolveWaitingListCta(
   state: PurchasePanelState,
   lens: PurchaseLens,
   waitingListHref: string | undefined,
 ): { label: string; href: string } | undefined {
-  const isOffered = state === 'members-only' || (state === 'not-allocated' && lens === 'retail');
-  if (!isOffered) return undefined;
-  const href = waitingListHref ?? (lens === 'allocation' ? DEFAULT_WAITING_LIST_HREF : undefined);
-  return href ? { label: WAITING_LIST_CTA_LABEL, href } : undefined;
+  if (lens === 'allocation') {
+    return state === 'members-only'
+      ? { label: WAITING_LIST_CTA_LABEL, href: waitingListHref ?? DEFAULT_WAITING_LIST_HREF }
+      : undefined;
+  }
+  const isOffered = state === 'members-only' || state === 'not-allocated';
+  return isOffered && waitingListHref
+    ? { label: WAITING_LIST_CTA_LABEL, href: waitingListHref }
+    : undefined;
 }
 
 // The availability read's `available` is the customer's remaining purchasable
@@ -827,9 +844,16 @@ function resolveGrantName(availability?: VariationAvailability): string | undefi
   return grantName && grantName !== 'universal' ? grantName : undefined;
 }
 
-function formatNotAllocatedNote(availability?: VariationAvailability): string {
+// Allocation: a grant name means the member's allocation ran out. Retail: a named
+// grant says nothing about a visitor the platform merely denies, so the grant
+// sentence needs a quantity limit that is actually used up.
+function formatNotAllocatedNote(
+  availability: VariationAvailability | undefined,
+  lens: PurchaseLens,
+): string {
   const grantName = resolveGrantName(availability);
-  return grantName
+  const isLimitUsedUp = lens === 'allocation' || availability?.quantityLimit?.available === 0;
+  return grantName && isLimitUsedUp
     ? `You've reached your allocation limit for the ${grantName}.`
     : NOT_ALLOCATED_NOTE;
 }
@@ -840,7 +864,7 @@ function formatUnavailableNote(availability?: VariationAvailability): string {
   const grantName = resolveGrantName(availability);
   return grantName
     ? `You've reached your allocation limit for the ${grantName}.`
-    : 'This wine is not currently available for purchase.';
+    : UNAVAILABLE_NOTE;
 }
 
 function pluralize(noun: string, count: number): string {

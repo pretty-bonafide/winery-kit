@@ -302,6 +302,7 @@ describe('buildPurchasePanelView', () => {
       const view = buildPurchasePanelView({
         variations: [BOTTLE],
         availability: DENIED,
+        isAuthenticated: false,
         waitingListHref: '/membership',
         signInHref: '/api/auth/login',
       });
@@ -342,7 +343,11 @@ describe('buildPurchasePanelView', () => {
     });
 
     it('offers only what the site wired: no sign-in href, no sign-in action; no waiting-list href, no waiting-list CTA', () => {
-      const anonymous = buildPurchasePanelView({ variations: [BOTTLE], availability: DENIED });
+      const anonymous = buildPurchasePanelView({
+        variations: [BOTTLE],
+        availability: DENIED,
+        isAuthenticated: false,
+      });
       expect(anonymous.state).toBe('members-only');
       expect(anonymous.signInCta).toBeUndefined();
       expect(anonymous.waitingListCta).toBeUndefined();
@@ -354,6 +359,41 @@ describe('buildPurchasePanelView', () => {
       });
       expect(signedIn.state).toBe('not-allocated');
       expect(signedIn.waitingListCta).toBeUndefined();
+    });
+
+    it('stays unavailable, exactly as 0.7.1, when who is signed in is unknown', () => {
+      const view = buildPurchasePanelView({
+        variations: [BOTTLE],
+        availability: DENIED,
+        waitingListHref: '/membership',
+        signInHref: '/api/auth/login',
+      });
+
+      expect(view.state).toBe('unavailable');
+      expect(view.unavailableNote).toBe('This wine is not currently available for purchase.');
+      expect(view.signInCta).toBeUndefined();
+      expect(view.waitingListCta).toBeUndefined();
+      expect(view.membersOnlyNote).toBeUndefined();
+    });
+
+    it('offers SIGN IN only to a visitor known to be signed out', () => {
+      const base = { variations: [BOTTLE], availability: DENIED, signInHref: '/api/auth/login' };
+      expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).signInCta).toBeDefined();
+      expect(buildPurchasePanelView(base).signInCta).toBeUndefined();
+      expect(buildPurchasePanelView({ ...base, isAuthenticated: true }).signInCta).toBeUndefined();
+    });
+
+    it('does not read a named grant as a used-up allocation for a retail denial', () => {
+      const granted: VariationAvailability[] = [
+        { ...DENIED[0], grantContext: { name: '2024 Release', endsAt: null } },
+      ];
+      expect(
+        buildPurchasePanelView({
+          variations: [BOTTLE],
+          availability: granted,
+          isAuthenticated: true,
+        }).unavailableNote,
+      ).toBe('Not in your current allocation');
     });
 
     it('keeps an open request path ahead of it, for either visitor', () => {
@@ -415,9 +455,13 @@ describe('buildPurchasePanelView', () => {
       const blocked: VariationAvailability[] = [
         { ...DENIED[0], permission: 'purchase', canAddToCart: false },
       ];
-      expect(buildPurchasePanelView({ variations: [BOTTLE], availability: blocked }).state).toBe(
-        'members-only',
-      );
+      expect(
+        buildPurchasePanelView({
+          variations: [BOTTLE],
+          availability: blocked,
+          isAuthenticated: false,
+        }).state,
+      ).toBe('members-only');
     });
 
     it('keeps a sold-out wine unavailable, for either visitor', () => {
@@ -434,9 +478,13 @@ describe('buildPurchasePanelView', () => {
       }
       // The wire status `restricted` is the denial.
       const restricted: VariationAvailability[] = [{ ...DENIED[0], status: 'restricted' }];
-      expect(buildPurchasePanelView({ variations: [BOTTLE], availability: restricted }).state).toBe(
-        'members-only',
-      );
+      expect(
+        buildPurchasePanelView({
+          variations: [BOTTLE],
+          availability: restricted,
+          isAuthenticated: false,
+        }).state,
+      ).toBe('members-only');
     });
 
     it('keeps in-cart ahead of it', () => {
@@ -463,12 +511,15 @@ describe('buildPurchasePanelView', () => {
     const requestable = { ...denied, permission: 'wishlist' as const, canAddToWishlist: true };
     const capped = EXHAUSTED_AVAILABILITY[0];
     const soldOut = { ...denied, status: 'sold_out' as const };
+    // The cap alone blocks: the add-to-cart flag still says yes.
+    const capOnly = { ...open, quantityLimit: { limit: 6, redeemed: 6, available: 0 } };
 
-    // [name, input, anonymous state, signed-in state]
+    // [name, input, anonymous state, signed-in state, unknown (no session) state]
     it.each([
       [
         'in the cart, denied',
         { availability: [denied], cartLines: [BOTTLE_CART_LINE] },
+        'in-cart',
         'in-cart',
         'in-cart',
       ],
@@ -477,26 +528,36 @@ describe('buildPurchasePanelView', () => {
         { availability: [requestable], restricted: true },
         'by-request',
         'by-request',
+        'by-request',
       ],
       [
         'restricted input, denied',
         { availability: [denied], restricted: true },
         'restricted',
         'restricted',
+        'restricted',
       ],
-      ['restricted input, no read', { restricted: true }, 'restricted', 'restricted'],
-      ['denied', { availability: [denied] }, 'members-only', 'not-allocated'],
-      ['used-up cap', { availability: [capped] }, 'unavailable', 'unavailable'],
-      ['sold out', { availability: [soldOut] }, 'unavailable', 'unavailable'],
-      ['open', { availability: [open] }, 'purchasable', 'purchasable'],
-      ['no read', {}, 'purchasable', 'purchasable'],
-      ['no cart input', { hasCartProduct: false }, 'degraded', 'degraded'],
-    ] as const)('%s', (_, input, anonymous, signedIn) => {
+      ['restricted input, no read', { restricted: true }, 'restricted', 'restricted', 'restricted'],
+      ['denied', { availability: [denied] }, 'members-only', 'not-allocated', 'unavailable'],
+      ['used-up cap', { availability: [capped] }, 'unavailable', 'unavailable', 'unavailable'],
+      [
+        'cap alone (canAddToCart true)',
+        { availability: [capOnly] },
+        'unavailable',
+        'unavailable',
+        'unavailable',
+      ],
+      ['sold out', { availability: [soldOut] }, 'unavailable', 'unavailable', 'unavailable'],
+      ['open', { availability: [open] }, 'purchasable', 'purchasable', 'purchasable'],
+      ['no read', {}, 'purchasable', 'purchasable', 'purchasable'],
+      ['no cart input', { hasCartProduct: false }, 'degraded', 'degraded', 'degraded'],
+    ] as const)('%s', (_, input, anonymous, signedIn, unknown) => {
       const base = { variations: [BOTTLE], ...input } as Parameters<
         typeof buildPurchasePanelView
       >[0];
-      expect(buildPurchasePanelView(base).state).toBe(anonymous);
+      expect(buildPurchasePanelView({ ...base, isAuthenticated: false }).state).toBe(anonymous);
       expect(buildPurchasePanelView({ ...base, isAuthenticated: true }).state).toBe(signedIn);
+      expect(buildPurchasePanelView(base).state).toBe(unknown);
     });
   });
 
