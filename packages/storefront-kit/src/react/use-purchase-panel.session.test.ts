@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CartRequestError, type CartSnapshot } from '../cart/cart-types.js';
+import type { CartSnapshot } from '../cart/cart-types.js';
 import type { StorefrontProduct } from '../storefront-api/products.js';
 import { type UsePurchasePanelOptions, usePurchasePanel } from './use-purchase-panel.js';
 
@@ -276,55 +276,66 @@ describe('usePurchasePanel with a site session: the buy button waits for the ans
   });
 });
 
-describe('usePurchasePanel with a site session: a visitor change starts from nothing', () => {
-  it('drops the previous customer on retail before the new read lands', async () => {
-    mocks.fetchContext.mockResolvedValueOnce(MEMBER_CONTEXT);
-    const panel = mount({ session: { status: 'authenticated' } });
+describe('usePurchasePanel with a site session: it settles once per mounted panel', () => {
+  it('shows and reads nothing visitor-scoped before the session settles', async () => {
+    const panel = mount({ session: { status: 'pending' } });
     await panel.render();
-    expect(panel.result.current.view.memberBadge).toBe('SIGNED IN · CLUB');
-    expect(panel.result.current.view.state).toBe('purchasable');
 
-    const next = deferred<unknown>();
-    mocks.fetchContext.mockReturnValueOnce(next.promise);
-    await panel.update({ session: { status: 'anonymous' } });
-
+    expect(mocks.fetchContext).not.toHaveBeenCalled();
+    expect(panel.result.current.view.availability).toBeUndefined();
     expect(panel.result.current.view.memberBadge).toBeUndefined();
-    expect(panel.result.current.addDisabled).toBe(true);
-
-    await act(async () => next.resolve(DENIED_CONTEXT));
-    expect(panel.result.current.view.state).toBe('members-only');
+    // A pending session reads as `false` on the result, not "unknown".
+    expect(panel.result.current.isAuthenticated).toBe(false);
   });
 
-  it('drops the member on the allocation lens when the visitor is no longer authenticated, with no re-read', async () => {
+  it('freezes the first settled status: a later change is logged once, never recovered from', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mocks.fetchContext.mockResolvedValue(MEMBER_CONTEXT);
-    const panel = mount({ lens: 'allocation', session: { status: 'authenticated' } });
+    const panel = mount({ session: { status: 'pending' } });
     await panel.render();
+    await panel.update({ session: { status: 'authenticated' } });
     expect(panel.result.current.view.state).toBe('purchasable');
+    expect(error).not.toHaveBeenCalled();
 
     await panel.update({ session: { status: 'anonymous' } });
+    await panel.update({ session: { status: 'pending' } });
+    await panel.update({ session: { status: 'authenticated' } });
+    await panel.update({ session: { status: 'anonymous' } });
 
-    expect(panel.result.current.view.state).toBe('members-only');
-    expect(panel.result.current.view.memberBadge).toBeUndefined();
+    // Nothing changed, nothing was re-read, and the site was told once.
+    expect(panel.result.current.view.state).toBe('purchasable');
+    expect(panel.result.current.isAuthenticated).toBe(true);
     expect(mocks.fetchContext).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0][0])).toContain('settle');
+    expect(String(error.mock.calls[0][0])).toContain('key');
   });
 
-  it('drops a cart-error quantity limit cached for the previous visitor', async () => {
-    mocks.fetchContext.mockResolvedValue(MEMBER_CONTEXT);
-    mocks.cartStore.addItem.mockRejectedValueOnce(
-      new CartRequestError({
-        code: 'allocation_exceeded',
-        message: 'limit',
-        quantityLimit: { limit: 6, redeemed: 6, available: 0 },
-      }),
-    );
-    const panel = mount({ session: { status: 'authenticated' } });
+  it('is correct on a remount: a new panel (a React key on the visitor) starts clean', async () => {
+    mocks.fetchContext.mockResolvedValueOnce(MEMBER_CONTEXT).mockResolvedValueOnce(DENIED_CONTEXT);
+    const first = mount({ session: { status: 'authenticated' } });
+    await first.render();
+    expect(first.result.current.view.state).toBe('purchasable');
+    act(() => root?.unmount());
+
+    const second = mount({ session: { status: 'anonymous' } });
+    await second.render();
+
+    expect(second.result.current.view.state).toBe('members-only');
+    expect(second.result.current.view.memberBadge).toBeUndefined();
+  });
+});
+
+describe('usePurchasePanel with a site session: a rejected read', () => {
+  it('settles like a null answer: logged, fails open, the button is not left pending', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.fetchContext.mockRejectedValue(new Error('network down'));
+    const panel = mount({ session: { status: 'anonymous' } });
     await panel.render();
-    await act(async () => panel.result.current.submitAddToCart());
-    expect(panel.result.current.view.canIncrement).toBe(false);
 
-    await panel.update({ session: { status: 'anonymous' } });
-
-    expect(panel.result.current.view.canIncrement).toBe(true);
+    expect(panel.result.current.view.state).toBe('purchasable');
+    expect(panel.result.current.addDisabled).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('rejected'), expect.any(Error));
   });
 });
 

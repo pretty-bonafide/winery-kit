@@ -67,9 +67,15 @@ export type PurchasePanelAddLabels = typeof DEFAULT_ADD_LABELS;
  * is not visible to the platform's own session endpoint (a code-exchange
  * session held in the site's cookie). `pending` until the site's read ends.
  *
- * The contract: a site supplies a status that SETTLES (a session read that
- * fails is `anonymous`; the kit has no timeout). A `pending` that never
- * resolves keeps the purchase action pending and never reads. */
+ * The contract, three lines:
+ *  1. it SETTLES: a status that goes `pending` -> `anonymous` | `authenticated`
+ *     once (a session read that fails is `anonymous`; the kit has no timeout, so
+ *     a `pending` that never resolves keeps the buy button pending and never reads);
+ *  2. it is supplied from the first render or never;
+ *  3. it settles ONCE per mounted panel. A site whose visitor can change without
+ *     a document load remounts the panel (a React `key` on the visitor). The panel
+ *     freezes the first settled status; if the supplied status changes after
+ *     that, it does not recover and logs one `console.error` naming this contract. */
 export interface PurchasePanelSession {
   status: 'pending' | 'anonymous' | 'authenticated';
 }
@@ -102,17 +108,16 @@ export interface UsePurchasePanelOptions {
   customerContextApi?: StorefrontApiConfig;
   /** The visitor's session, from the site. OPT-IN: when omitted the panel
    * behaves exactly as before — a retail denial stays `unavailable`, no sign-in
-   * action, the allocation lens reads its own platform session. When PROVIDED:
+   * action, the allocation lens reads its own platform session. When PROVIDED
+   * (see `PurchasePanelSession` for the contract: it settles, from the first
+   * render, once per mounted panel — remount with a React `key` on the visitor):
    *  - it is the only source of "signed in" on both lenses (the allocation
    *    lens's direct platform session read is skipped), and a retail denial
-   *    becomes `members-only` / `not-allocated` once the status is known;
-   *  - the purchase-context read waits until it is not `pending`, and the buy
-   *    button stays pending until the session AND the first read have settled
-   *    (a failed read then fails open);
-   *  - a change of status clears the previous visitor's pricing, availability,
-   *    memberships and cached quantity limit before any new read.
-   * Supply it from the first render or never: adding or removing it after mount
-   * is not supported. */
+   *    becomes `members-only` / `not-allocated` once the status has settled;
+   *  - nothing visitor-scoped is read before it settles: the purchase-context
+   *    read waits until it is not `pending`, and the buy button stays pending
+   *    until the session AND the first read have settled (a failed or rejected
+   *    read then fails open). */
   session?: PurchasePanelSession;
   /** Club-discount marketing facts (site/CMS-supplied, pre-formatted), shown
    * to non-members on purchasable PDPs. Omit when the brand runs no club
@@ -138,6 +143,9 @@ export interface UsePurchasePanelOptions {
 
 export interface UsePurchasePanelResult {
   view: PurchasePanelView;
+  /** `false` until the visitor is known to be signed in: while the allocation
+   * lens's own read (or the site's `session`) is pending it is `false`, not
+   * "unknown" — a site that supplies `session` already holds its status. */
   isAuthenticated: boolean;
   /** False during SSR and the first client render, true after the island
    * mounts. The CTA stays disabled until this flips, so a not-yet-hydrated (or
@@ -219,7 +227,31 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     alternativeCandidates,
   } = options;
   const hasSiteSession = session !== undefined;
-  const sessionStatus = session?.status;
+  // The session settles ONCE per mounted panel: the first settled status is
+  // frozen, so nothing below can ever see the visitor change (a site whose
+  // visitor changes remounts the panel). A later change is a contract violation
+  // that is logged once, never recovered from.
+  const suppliedStatus = session?.status;
+  const [settledStatus, setSettledStatus] = useState<'anonymous' | 'authenticated' | undefined>(
+    undefined,
+  );
+  const sessionStatus = settledStatus ?? suppliedStatus;
+  const hasLoggedViolation = useRef(false);
+  useEffect(() => {
+    if (!hasSiteSession) return;
+    if (settledStatus === undefined) {
+      if (suppliedStatus !== undefined && suppliedStatus !== 'pending') {
+        setSettledStatus(suppliedStatus);
+      }
+      return;
+    }
+    if (suppliedStatus !== settledStatus && !hasLoggedViolation.current) {
+      hasLoggedViolation.current = true;
+      console.error(
+        `usePurchasePanel: the \`session\` prop changed from "${settledStatus}" to "${suppliedStatus}" after it settled. It must settle once per mounted panel; remount the panel (a React \`key\` on the visitor) when the visitor changes. The panel keeps showing "${settledStatus}".`,
+      );
+    }
+  }, [hasSiteSession, settledStatus, suppliedStatus]);
   const labels = { ...DEFAULT_ADD_LABELS, ...options.labels };
 
   const { cart, isMutating } = useCartStore();
@@ -230,22 +262,20 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [isDirectlyAuthenticated, setIsAuthenticated] = useState(false);
   // With a site session: the variations the context read waits to ask about, and
-  // whether that read has settled for the current visitor (success or failure).
+  // whether that read has settled (success, failure or rejection).
   const [contextVariationIds, setContextVariationIds] = useState<string[] | null>(null);
   const [isContextSettled, setIsContextSettled] = useState(false);
   const isAuthenticated = hasSiteSession
     ? sessionStatus === 'authenticated'
     : isDirectlyAuthenticated;
-  // What the view model is told: the site's session as a tri-state (unknown while
-  // pending); without one, only the allocation lens's own read (0.7.1), and
-  // retail stays unknown, so a denial stays `unavailable`.
-  const knownAuthentication: boolean | undefined = hasSiteSession
-    ? sessionStatus === 'pending'
-      ? undefined
+  // The retail opt-in: only a settled site session tells the view model who the
+  // visitor is; without one it is absent, exactly as 0.7.1.
+  const visitor: 'anonymous' | 'signed-in' | undefined =
+    sessionStatus === 'anonymous'
+      ? 'anonymous'
       : sessionStatus === 'authenticated'
-    : lens === 'allocation'
-      ? isDirectlyAuthenticated
-      : undefined;
+        ? 'signed-in'
+        : undefined;
   const [pricing, setPricing] = useState<VariationPricing[] | null>(null);
   const [availability, setAvailability] = useState<VariationAvailability[] | null>(null);
   const [memberships, setMemberships] = useState<CustomerMembership[] | null>(null);
@@ -326,20 +356,6 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     };
   }, []);
 
-  // A new visitor starts from nothing: when the site's session changes, drop the
-  // previous visitor's pricing, availability, memberships and cached cart-error
-  // limit before any new read (declared before the read effect, so it runs first).
-  const previousSessionStatus = useRef(sessionStatus);
-  useEffect(() => {
-    if (!hasSiteSession || previousSessionStatus.current === sessionStatus) return;
-    previousSessionStatus.current = sessionStatus;
-    setPricing(null);
-    setAvailability(null);
-    setMemberships(null);
-    setErrorLimit(null);
-    setIsContextSettled(false);
-  }, [hasSiteSession, sessionStatus]);
-
   // With a site session: the purchase-context read, once the product has given
   // its variations AND the session is known, so an answer is never read before
   // it. The allocation lens only reads for a signed-in visitor (an anonymous
@@ -356,18 +372,24 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
     if (lens === 'allocation' && sessionStatus !== 'authenticated') return;
 
     let cancelled = false;
-    void readCustomerContext(
+    const settle = (context: CustomerPurchaseContext | null) => {
+      if (cancelled) return;
+      setPricing(context?.pricing ?? null);
+      setAvailability(context?.availability ?? null);
+      setMemberships(context?.memberships ?? null);
+      setIsContextSettled(true);
+    };
+    // A rejection settles like a null answer (fail open) so the buy button is
+    // never left pending forever; it is logged, never silent.
+    readCustomerContext(
       { baseUrl: contextBaseUrl, publishableKey: contextPublishableKey },
       contextVariationIds,
       lens,
-      (context) => {
-        if (cancelled) return;
-        setPricing(context?.pricing ?? null);
-        setAvailability(context?.availability ?? null);
-        setMemberships(context?.memberships ?? null);
-        setIsContextSettled(true);
-      },
-    );
+      settle,
+    ).catch((error) => {
+      console.error('usePurchasePanel: purchase context read rejected — failing open.', error);
+      settle(null);
+    });
     return () => {
       cancelled = true;
     };
@@ -443,10 +465,10 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
         options: productOptions,
         selectedVariationId: selectedId,
         lens,
-        isAuthenticated: knownAuthentication,
+        isAuthenticated,
+        visitor,
         waitingListHref,
-        signInHref: hasSiteSession && sessionStatus === 'anonymous' ? signInHref : undefined,
-        // ^ no sign-in action without a site session, and none until it is known
+        signInHref,
         pricing,
         availability,
         memberships,
@@ -468,8 +490,7 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       errorLimit,
       fallbackPriceLabel,
       hasCartProduct,
-      hasSiteSession,
-      knownAuthentication,
+      isAuthenticated,
       lens,
       memberships,
       pricing,
@@ -479,10 +500,10 @@ export function usePurchasePanel(options: UsePurchasePanelOptions): UsePurchaseP
       requestHref,
       restricted,
       selectedId,
-      sessionStatus,
       signInHref,
       unitNoun,
       variations,
+      visitor,
       waitingListHref,
     ],
   );
